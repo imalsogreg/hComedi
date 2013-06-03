@@ -1,0 +1,25 @@
+name:          hcomedi
+version:       0.1
+homepage:      http://github.com/ImAlsoGreg/hcomedi
+description:
+    Bindings for comedilib linux input/output card drivers
+category:      Hardware
+license:       GPL-3
+license-file:  LICENSE
+author:        Greg Hale
+maintainer:    imalsogreg@gmail.com
+cabal-version: >= 1.8
+build-type:    Simple
+
+library
+  exposed-modules:  System.HComedi
+  build-depends:    base >= 4.3 && <= 4.7
+  extra-libraries:  comedi
+  hs-source-dirs:   src
+  other-modules:    System.HComedi.ComediBase
+
+executable tut1
+  main-is:          tut1.hs
+  hs-source-dirs:   tut1, src/System
+  build-depends:    base >= 4 && <= 5 
+                    , hcomedi
