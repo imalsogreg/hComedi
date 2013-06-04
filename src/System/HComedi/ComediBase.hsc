@@ -24,10 +24,10 @@ type LSample = Int32
 type Sample  = Int16
 
 foreign import ccall safe "comedilib.h comedi_open"
-  open :: CString -> IO Handle
+  c_comedi_open :: CString -> IO Handle
     
 foreign import ccall safe "comedilib.h comedi_data_read"
-  libComediRead :: Handle ->          -- comedi_t * device
+  c_comedi_read :: Handle ->          -- comedi_t * device
                    SubDevice    ->    -- unsigned int subdevice
                    ChanInd      ->    -- unsigned int chan
                    Range        ->    -- unsigned int range
@@ -36,7 +36,7 @@ foreign import ccall safe "comedilib.h comedi_data_read"
                    IO CInt            -- int return val
                             
 foreign import ccall safe "comedilib.h comedi_set_global_oor_behavior"
-  set_global_oor_behavior :: CInt -> IO ()
+  c_comedi_set_global_oor_behavior :: CInt -> IO ()
     
 
 data RangeInfo = RangeInfo { rngMin  :: CDouble
@@ -58,23 +58,27 @@ instance Storable RangeInfo where
     (#poke comedi_range, unit) ptr rUnit
 
 foreign import ccall safe "comedilib.h comedi_get_range"
-  libComediGetRange :: Handle ->  -- comedi_t * device
-                       SubDevice     ->  -- unsigned int subdevice
-                       ChanInd       ->  -- unsigned int channel
-                       CInt          ->  -- unsigned int range
-                       IO (Ptr RangeInfo)
+  c_comedi_get_range :: Handle ->  -- comedi_t * device
+                        SubDevice     ->  -- unsigned int subdevice
+                        ChanInd       ->  -- unsigned int channel
+                        CInt          ->  -- unsigned int range
+                        IO (Ptr RangeInfo)
     
 
 foreign import ccall safe "comedilib.h comedi_get_maxdata"
-  libComediGetMaxData :: Handle -> SubDevice -> ChanInd -> LSample
+  c_comedi_get_maxdata :: Handle -> SubDevice -> ChanInd -> LSample
 
 foreign import ccall safe "comedilib.h comedi_to_phys"
-  libComediToPhys :: LSample -> Ptr RangeInfo -> LSample -> CDouble
+  c_comedi_to_phys :: LSample -> Ptr RangeInfo -> LSample -> CDouble
 
+newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
+                           deriving (Eq, Show)
 
-oorNaN :: CInt 
-oorNaN = #const COMEDI_OOR_NAN
-
+#{enum OutOfRangeBehavior, OutOfRangeBehavior
+ , oor_nan     = COMEDI_OOR_NAN
+ , oor_number  = COMEDI_OOR_NUMBER
+}
+  
 newtype Unit = Unit { unitVal :: CInt } deriving (Eq, Show)
 
 #{enum Unit, Unit
