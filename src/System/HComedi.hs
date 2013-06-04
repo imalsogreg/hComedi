@@ -56,12 +56,23 @@ class ComediOptType a where
   comediOpt :: a -> ComediOpt a
 
 data RefType              = ARefGnd | ARefCommon | ARefDiff | ARefOther   deriving (Eq, Show)
+
+
+data SampleUnit = Volt | MilliAmp | UnitNone deriving (Eq, Show)
+
+
 data RefOpt               = RefOpt                                        deriving (Eq, Show)
 data OORBehav             = OORNaN                                        deriving (Eq, Show)
 data SampleUnitOpt        = SampleVolts | SampleMilliAmps | SampleNoUnits deriving (Eq, Show)
 data SubDeviceType        = SubDeviceType                                 deriving (Eq, Show)
 data IODirection          = IODirection                                   deriving (Eq, Show)
 data ConversionDirection  = ConversionDirection                           deriving (Eq, Show)
+
+setGlobalOORBehavior :: ComediOpt OORBehav -> IO ()    
+setGlobalOORBehavior behav
+  | behav == oorNaN  = libComediSetGlobalOORBehavior $ unComediOpt behav
+  | otherwise        = error $ 
+                 "setGlobalOORBehavior to unknown value " ++ show (unComediOpt behav)
 
 instance ComediOptType RefType where
   comediOpt ARefGnd = LC.aRefGnd
