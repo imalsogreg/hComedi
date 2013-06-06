@@ -1,4 +1,31 @@
-module System.HComedi where
+module System.HComedi (
+  
+    -- * Type Definitions
+    Handle
+  , SubDevice
+  , Channel (..)
+  , Command  {-
+  , Instruction
+  , DeviceInfo
+  , CalibrationPolynomial
+  , RangeInfo
+    
+  -- * Flag Values
+  , SubDeviceType
+  , SubDeviceFlags
+  , InsnType
+  , SampleUnit
+  , OutOfRangeBehavior
+  , RefType
+  , ConversionDirection
+  , IODirection
+  , CrFlag
+  , RTSI_clockSource
+  , RTSI_signalSource  -}
+    
+  -- *   
+    
+  ) where
 
 import Foreign
 import Foreign.C
@@ -6,13 +33,22 @@ import Foreign.Ptr
 import qualified System.HComedi.ComediBase as B
 
 
-type SubDevice = CInt  -- no need for special representation of haskell SubDevice, so CInt
-type ChanInd   = CInt  -- same for ChanInd
+data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
+data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
 type Range     = CInt  -- same for range (TODO: really?  What is a range? as opposed to range_info?)
 
--- |ComediHandle handle for comedi device
-data ComediHandle = ComediHandle { unComediHandle :: LC.CComediHandle }
+data Command = Command { cCommand :: Int } deriving (Eq, Show)
 
+-- |ComediHandle handle for comedi device
+data Handle = Handle { cHandle :: B.Handle }
+
+open :: FilePath -> 
+  
+
+testHandle :: Channel
+testHandle = Channel 2
+
+{-
 type LSample = LC.LSample
 type  Sample = LC.Sample
                     
@@ -111,3 +147,5 @@ flagToUnit (ComediOpt f)
   | f == LC.unitMAmp = MilliAmp
   | f == LC.unitNone = UnitNone
   | otherwise     = error $ "flagToUnit of unknown flag " ++ show f
+
+-}

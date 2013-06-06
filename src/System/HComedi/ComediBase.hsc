@@ -131,11 +131,14 @@ foreign import ccall safe "comedilib.h comedi_get_subdevice_type"
 foreign import ccall safe "comedilib.h comedi_get_version_code"
   c_comedi_get_version_code :: Handle -> IO CInt
 
+-- NOTE: comedi_internal_trigger is not in my comedilib.h
+{-
 -- |Send an INSN_INTTRIG instruction to a subdevice
 foreign import ccall safe "comedilib.h comedi_internal_trigger"
   c_comedi_internal_trigger :: Handle -> SubDevice -> 
                                CInt ->    --  trig_num
                                IO CInt    --  returns 0 on success, -1 on error
+-}
 
 -- |Lock a SubDevice.  Returns 0 on success, -1 on failure (so, not blocking?)
 foreign import ccall safe "comedilib.h comedi_lock"
@@ -222,7 +225,7 @@ foreign import ccall safe "comebilib.h comedi_mark_buffer_read"
                                IO CInt
 
 -- |When using mmap mapping, skips ahead by n_bytes
-foreign import ccall safe "comedilib.h comedi_mark_buffer_writter"
+foreign import ccall safe "comedilib.h comedi_mark_buffer_written"
   c_comedi_mark_buffer_written :: Handle -> SubDevice ->
                                   CInt ->  -- n_bytes to skip over
                                   IO CInt
@@ -359,11 +362,14 @@ foreign import ccall safe "comeddlib.h comedi_perror"
   c_comedi_perror :: CString -> IO ()
                      
 -- |Error message from error string.  Pass this to perror to add code location information
-foreign import ccall safe "comedilib.h comedi_sterror"
-  c_comedi_sterror :: CInt -> IO CString
+foreign import ccall safe "comedilib.h comedi_strerror"
+  c_comedi_strerror :: CInt -> IO CString
 
 
 -- *Extensions
+
+{-
+-- NOTE: comedi_arm isn't in my comedilib.h 
 
 -- |Arm subdevice.  Onle works on devices that support INSN_CONFIG_ARM instruction.
 -- Returns 0 on success, -1 on failure
@@ -371,7 +377,10 @@ foreign import ccall safe "comedilib.h comedi_arm"
   c_comedi_arm :: Handle -> SubDevice -> 
                   CInt ->      -- Input source
                   IO CInt      -- Returns 0 on success, -1 on failure
-                  
+
+
+-- NOTE: comedi_get_clock_source isn't in my comedilib.h
+
 -- |Query the master clock for a subdevice, set by c_comedi_set_clock_source.
 -- Currently configured master clock will be written to *clock
 -- ChanInd argument is ignored in subdevices that don't support per-channel clocking
@@ -381,12 +390,17 @@ foreign import ccall safe "comedelib.h comedi_get_clock_source"
                                Ptr CInt ->    -- period (nanoseconds)
                                IO CInt
 
+
+-- NOTE: comedi_get_gate_source isn't in my comedilib.h
+
 -- |Set gate source on devices that support INSN_CONFIG_GET_GATE instruction
 foreign import ccall safe "comedilib.h comedi_get_gate_source"
   c_comedi_get_gate_source :: Handle -> SubDevice -> ChanInd ->
                               CInt ->        -- gate_index
                               Ptr CInt ->    -- gate_source 
                               IO CInt
+
+
 
 -- |Query number of bytes streaming subdevice can hold in its hardare buffer
 -- Doesn't include kernel memory.  For that, use c_comedi_get_buffer_size
@@ -399,14 +413,14 @@ foreign import ccall safe "comedilib.h comedi_get_hardware_buffer_size"
 -- |Device-dependent routing for (for example) NI's RTSI and PFI lines
 foreign import ccall safe "comedilib.h comedi_set_routing"
   c_comedi_set_couting :: Handle -> SubDevice -> ChanInd ->
-                          CInt ->   -- *routing
+                          CInt ->   -- routing pointer
                           IO CInt
                           
 
 -- |Get routing information as set by c_comedi_set_routing
 foreign import ccall safe "comedilib.h comedi_get_routing"
   c_comedi_get_routing :: Handle -> SubDevice -> ChanInd ->
-                          Ptr CInt ->    -- *routing
+                          Ptr CInt ->    -- routing pointer
                           IO CInt
 
 -- |Reset a subdevice
@@ -449,6 +463,7 @@ foreign import ccall safe "comedilib.h comedi_set_other_source"
                                CInt ->     -- Other
                                CInt ->     -- Source
                                IO CInt     -- Returns 0 on success, -1 on failure
+-}
 
 -- *Deprecated functions
 {- Imports not written.  Will write if I find out they are important. -}
@@ -663,12 +678,12 @@ newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
  , aRefOther  = AREF_OTHER
 }
 
-newtype Flag = Flag { flagVal :: CInt } deriving (Eq, Show)
+newtype CrFlag = CrFlag { flagVal :: CInt } deriving (Eq, Show)
 
-mergeFlags :: [Flag] -> Flag
-mergeFlags fs = Flag $ foldl (.|.) 0 (map flagVal fs)
+mergeFlags :: [CrFlag] -> CrFlag
+mergeFlags fs = CrFlag $ foldl (.|.) 0 (map flagVal fs)
 
-#{enum Flag, Flag
+#{enum CrFlag, CrFlag
  , flag_cr_alt_filter  = CR_ALT_FILTER
  , flag_cr_dither      = CR_DITHER
  , flag_cr_deglitch    = CR_DEGLITCH
