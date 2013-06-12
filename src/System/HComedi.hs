@@ -4,49 +4,44 @@ module System.HComedi (
     Handle
   , SubDevice
   , Channel (..)
-  , Command  {-
-  , Instruction
-  , DeviceInfo
-  , CalibrationPolynomial
-  , RangeInfo
+  , Command  
     
-  -- * Flag Values
-  , SubDeviceType
-  , SubDeviceFlags
-  , InsnType
-  , SampleUnit
-  , OutOfRangeBehavior
-  , RefType
-  , ConversionDirection
-  , IODirection
-  , CrFlag
-  , RTSI_clockSource
-  , RTSI_signalSource  -}
-    
-  -- *   
+    -- * Core functions
+  , open
+  , boardName
+  , driverName
     
   ) where
 
 import Foreign
 import Foreign.C
+import Foreign.C.Error
 import Foreign.Ptr
 import qualified System.HComedi.ComediBase as B
 
 
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
-type Range     = CInt  -- same for range (TODO: really?  What is a range? as opposed to range_info?)
+type Range     = CInt  -- same for ComediBase's range 
+                       -- (TODO: really?  What is a range? as opposed to range_info?)
 
 data Command = Command { cCommand :: Int } deriving (Eq, Show)
 
 -- |ComediHandle handle for comedi device
-data Handle = Handle { cHandle :: B.Handle }
+data Handle = Handle { cHandle :: B.Handle } deriving (Eq, Show)
 
-open :: FilePath -> 
-  
+open :: FilePath -> IO Handle
+open fp = throwErrnoIfNull "Comedi open error" (withCString fp B.c_comedi_open ) >>=
+  return . Handle 
 
-testHandle :: Channel
-testHandle = Channel 2
+boardName :: Handle -> IO String
+boardName (Handle h) = throwErrnoIfNull "Comedi board name error"
+                       (B.c_comedi_get_board_name h) >>= peekCString
+
+
+driverName :: Handle -> IO String
+driverName (Handle h) = throwErrnoIfNull "Comedi driver name error"
+                        (B.c_comedi_get_driver_name h) >>= peekCString
 
 {-
 type LSample = LC.LSample
