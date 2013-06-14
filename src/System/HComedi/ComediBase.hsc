@@ -49,13 +49,13 @@ foreign import ccall safe "comedilib.h comedi_close"
 
 -- |Read a single sample from a single channel. Returns 1 on success, -1 on error
 foreign import ccall safe "comedilib.h comedi_data_read"
-  c_comedi_read :: Handle ->          -- comedi_t * device
-                   SubDevice    ->    -- unsigned int subdevice
-                   ChanInd      ->    -- unsigned int chan
-                   Range        ->    -- unsigned int range
-                   CInt          ->   -- unsigned int aref
-                   (Ptr LSample)  ->  -- unsigned int * data
-                   IO CInt            -- int return val
+  c_comedi_data_read :: Handle ->          -- comedi_t * device
+                        SubDevice    ->    -- unsigned int subdevice
+                        ChanInd      ->    -- unsigned int chan
+                        Range        ->    -- unsigned int range
+                        CInt          ->   -- unsigned int aref
+                        (Ptr LSample)  ->  -- unsigned int * data
+                        IO CInt            -- int return val
 
 -- |Read multiple samples from a single channel
 foreign import ccall safe "comedilib.h comedi_data_read_n"
@@ -706,7 +706,7 @@ newtype IODirection = IODirection { ioDirVal :: CInt } deriving (Eq, Show)
  , io_direction_output  = COMEDI_OUTPUT
 }
 
-newtype SubDeviceType = SubDeviceType { subdeviceVal :: CInt } deriving (Eq, Show)
+newtype SubDeviceType = SubDeviceType { subdeviceVal :: CInt } deriving (Eq, Ord, Show)
 
 #{enum SubDeviceType, SubDeviceType
  , subdevice_unused  = COMEDI_SUBD_UNUSED

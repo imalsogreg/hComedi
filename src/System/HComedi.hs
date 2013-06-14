@@ -2,14 +2,41 @@ module System.HComedi (
   
     -- * Type Definitions
     Handle
-  , SubDevice
+  , SubDevice (..)
   , Channel (..)
-  , Command  
+  , Command  (..)
+  , SubDeviceType (..)
+  , Range (..)
+  , ARef (..)
     
-    -- * Core functions
-  , open
+    -- * Intermediate level functions
+  , withHandle
+  , withHandles
+    
+    -- * Descriptive functions
+  , getNSubDevices
+  , getNRanges
+  , getNChannels
+  , getSubDeviceType
   , boardName
-  , driverName
+  , driverName    
+    
+    -- * One-off I/O
+  , aReadInteger
+  , aReadNIntegers
+  , aReadIntegerDelayedNS
+  , aReadHint
+    
+  , aWriteInteger
+    
+    -- * Device Administration
+  , lock
+  , unlock
+    
+    -- * Low level functions
+  , open
+  , close
+
     
   ) where
 
@@ -17,31 +44,154 @@ import Foreign
 import Foreign.C
 import Foreign.C.Error
 import Foreign.Ptr
+import Data.Maybe (fromJust, maybe)
 import qualified System.HComedi.ComediBase as B
+import qualified Control.Exception as E
+import qualified Control.Monad as M
 
-
+--newtype DevFile = DevFile { devFileName :: String } deriving (Eq, Show)
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
-type Range     = CInt  -- same for ComediBase's range 
-                       -- (TODO: really?  What is a range? as opposed to range_info?)
+data Range     = Range     { cRange     :: B.Range     } deriving (Eq, Show)  
+data ARef      = ARef      { cAref      :: B.ARef      } deriving (Eq, Show)
 
 data Command = Command { cCommand :: Int } deriving (Eq, Show)
 
 -- |ComediHandle handle for comedi device
-data Handle = Handle { cHandle :: B.Handle } deriving (Eq, Show)
+data Handle = Handle { devName :: String
+                     , cHandle :: B.Handle }
+            deriving (Eq, Show)
 
+withHandle :: FilePath -> (Handle -> IO a) -> IO a
+withHandle df act = E.bracket (open df) (close) act
+
+withHandles :: [FilePath] -> ([Handle] -> IO a) -> IO a
+withHandles dfs act = E.bracket 
+                      (M.mapM open dfs)
+                      (M.mapM_ close)
+                      act
+                      
 open :: FilePath -> IO Handle
-open fp = throwErrnoIfNull "Comedi open error" (withCString fp B.c_comedi_open ) >>=
-  return . Handle 
+open df = throwErrnoIfNull ("Comedi open error for " ++ df) 
+          (withCString df B.c_comedi_open ) >>= 
+          \p -> return $ Handle df p
+
+close :: Handle -> IO ()
+close (Handle df p) = throwErrnoIf_ ( < 0 ) 
+                      ("Comedi close error on handle for " ++ df)
+                      (B.c_comedi_close p)
 
 boardName :: Handle -> IO String
-boardName (Handle h) = throwErrnoIfNull "Comedi board name error"
-                       (B.c_comedi_get_board_name h) >>= peekCString
+boardName (Handle df p) = throwErrnoIfNull ("Comedi board name error for " ++ df)
+                          (B.c_comedi_get_board_name p) >>= peekCString
 
 
 driverName :: Handle -> IO String
-driverName (Handle h) = throwErrnoIfNull "Comedi driver name error"
-                        (B.c_comedi_get_driver_name h) >>= peekCString
+driverName (Handle df p) = throwErrnoIfNull 
+                           ("Comedi driver name error for " ++ df)
+                           (B.c_comedi_get_driver_name p) >>= peekCString
+
+getNSubDevices :: Handle -> IO Int
+getNSubDevices (Handle df p) = 
+  throwErrnoIf ( < 0 )
+  ("Comedi error getting n subdevices for " ++ df)
+  (B.c_comedi_get_n_subdevices p) >>= return . fromIntegral
+                               
+getNRanges :: Handle -> SubDevice -> Channel -> IO Int
+getNRanges (Handle df p) (SubDevice s) (Channel c) = 
+  throwErrnoIf ( < 0 )
+  ("Comedi error getting n ranges for " ++ df)
+  (B.c_comedi_get_n_ranges p s c) >>= return . fromIntegral
+
+getNChannels :: Handle -> SubDevice -> IO Int
+getNChannels (Handle df p) (SubDevice s) =
+  throwErrnoIf (< 0)
+  ("Comedi error getting n channels for " ++ df)
+  (B.c_comedi_get_n_channels p s) >>= return . fromIntegral
+
+getSubDeviceType :: Handle -> SubDevice -> IO SubDeviceType
+getSubDeviceType (Handle df p) (SubDevice s) =
+  throwErrnoIf ( < 0 )
+  ("Comedi error getting subdevice type for " ++ df)
+  (B.c_comedi_get_subdevice_type p s) >>= return . fromCSubDeviceType . B.SubDeviceType
+
+data SubDeviceType = Unused | AI | AO | DI | DO | DIO | 
+                     Counter | Timer | Memory | Calib | Proc | Serial
+                                                               deriving (Show, Eq, Ord, Enum)
+
+-- |Maps ComediBase subdevice types (B.SubDeviceType CInt) to SubDeviceTypes
+-- comedilib's comedi_get_subdevice_type returns 2046 (or something like that)
+-- on failure sometimes.  We handle this by returning Unused in the case of
+-- a failed table lookup.
+fromCSubDeviceType :: B.SubDeviceType -> SubDeviceType
+fromCSubDeviceType = maybe Unused id . flip lookup subDevTypeMap
+
+toCSubDeviceType :: SubDeviceType -> B.SubDeviceType
+toCSubDeviceType = maybe B.subdevice_unused id . flip lookup (map flipTuple subDevTypeMap)
+
+flipTuple :: (a,b) -> (b,a)
+flipTuple (a,b) = (b,a)
+
+subDevTypeMap =  [ (B.subdevice_unused,   Unused)
+                 , (B.subdevice_ai,           AI)
+                 , (B.subdevice_ao,           AO)
+                 , (B.subdevice_di,           DI)
+                 , (B.subdevice_do,           DO)
+                 , (B.subdevice_dio,         DIO)
+                 , (B.subdevice_counter, Counter)
+                 , (B.subdevice_timer,     Timer)
+                 , (B.subdevice_memory,   Memory)
+                 , (B.subdevice_calib,     Calib)
+                 , (B.subdevice_proc,       Proc)
+                 , (B.subdevice_serial,   Serial) 
+                 ]
+
+aReadInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> IO Integer
+aReadInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) =
+  alloca $ \ptr -> do
+    (throwErrnoIf (< 1) "Read error"
+     (B.c_comedi_data_read p s c r a ptr))
+    v <- peek ptr
+    return (fromIntegral v)
+  
+aReadNIntegers :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO [Int]
+aReadNIntegers (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) n =
+  allocaArray n $ \ptr -> do
+    (throwErrnoIf ( < 0 ) "N Read error"
+     (B.c_comedi_data_read_n p s c r a ptr (fromIntegral n)))
+    vs <- peekArray n ptr
+    return $ map fromIntegral vs
+
+aReadIntegerDelayedNS :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO Int
+aReadIntegerDelayedNS (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) dNS =
+  alloca $ \ptr -> do
+    (throwErrnoIf (< 0) "Read delayed error"
+     (B.c_comedi_data_read_delayed p s c r a ptr (fromIntegral dNS)))
+    v <- peek ptr
+    return (fromIntegral v)
+    
+aReadHint :: Handle -> SubDevice -> Channel -> Range -> ARef -> IO ()
+aReadHint (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) =
+  throwErrnoIf (< 0) ("Comedi read hint error for " ++ fn ++ "  channel " ++ show c)
+  (B.c_comedi_data_read_hint p s c r a) >> return ()
+
+aWriteInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO ()
+aWriteInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) vInt = 
+  throwErrnoIf (< 0) 
+  ("Comedi write error for " ++ fn ++ "  channel " ++ show s ++ " := " ++ show vInt)
+  (B.c_comedi_data_write p s c r a (fromIntegral vInt)) >> return ()
+
+lock :: Handle -> SubDevice -> IO ()
+lock (Handle fn p) (SubDevice s) = 
+  throwErrnoIf ( < 0 )
+  ("Comedi error locking device " ++ fn ++ " subdevice " ++ show s)
+  (B.c_comedi_lock p s) >> return ()
+  
+unlock :: Handle -> SubDevice -> IO ()
+unlock (Handle fn p) (SubDevice s) =
+  throwErrnoIf ( < 0 )
+  ("Comedi error locking device " ++ fn ++ " subdevice " ++ show s)
+  (B.c_comedi_unlock p s) >> return ()
 
 {-
 type LSample = LC.LSample
