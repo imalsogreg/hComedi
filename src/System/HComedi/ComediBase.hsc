@@ -637,63 +637,100 @@ instance Storable PolynomialT where
     (#poke comedi_polynomial_t, expansion_origin) ptr sExpan
     (#poke comedi_polynomial_t, order) ptr sOrder
     
-data RangeInfo = RangeInfo { rngMin  :: CDouble
-                           , rngMax  :: CDouble
-                           , rngUnit :: CInt
+data RangeInfo = RangeInfo { rngMin  :: Double
+                           , rngMax  :: Double
+                           , rngUnit :: SampleUnit
                            } deriving (Eq, Show)
 
 instance Storable RangeInfo where
   sizeOf     _ = (#size comedi_range)
   alignment  _ = alignment (undefined :: CDouble)
   peek ptr = do
-    pMin  <- (#peek comedi_range, min)  ptr
-    pMax  <- (#peek comedi_range, max)  ptr
-    pUnit <- (#peek comedi_range, unit) ptr
-    return RangeInfo {rngMin=pMin, rngMax=pMax, rngUnit=pUnit}
+    pMin  <- (#peek comedi_range, min)  ptr :: IO CDouble
+    pMax  <- (#peek comedi_range, max)  ptr :: IO CDouble
+    pUnit <- (#peek comedi_range, unit) ptr :: IO CInt
+    return $
+      RangeInfo (realToFrac pMin) (realToFrac pMax) (sampleUnitFromC pUnit)
   poke ptr (RangeInfo rMin rMax rUnit) = do
-    (#poke comedi_range, min)  ptr rMin
-    (#poke comedi_range, max)  ptr rMax
-    (#poke comedi_range, unit) ptr rUnit
+    (#poke comedi_range, min)  ptr (realToFrac rMin :: CDouble)
+    (#poke comedi_range, max)  ptr (realToFrac rMax :: CDouble)
+    (#poke comedi_range, unit) ptr (sampleUnitToC rUnit :: CInt)
 
 
-newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
-                           deriving (Eq, Show)
+--newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
+--                           deriving (Eq, Show)
+data OutOfRangeBehavior = OOR_NaN | OOR_Number deriving (Eq, Ord, Show)
 
-#{enum OutOfRangeBehavior, OutOfRangeBehavior
- , oor_nan     = COMEDI_OOR_NAN
- , oor_number  = COMEDI_OOR_NUMBER
-}
+outOfRangeMap :: [(OutOfRangeBehavior, CInt)]
+outOfRangeMap = [(OOR_NaN, #const COMEDI_OOR_NAN)
+                ,(OOR_Number, #const COMEDI_OOR_NUMBER)
+                ]
+
+outOfRangeToC = highToC outOfRangeMap (snd (head outOfRangeMap))
+outOfRangeFromC = cToHigh outOfRangeMap OOR_NaN
+
+
+
+
+cToHigh :: (Eq a, Ord a, Eq b, Ord b) => [(a, b)] -> a -> b -> a
+cToHigh constMap valDefault query =
+  maybe valDefault id (lookup query (fl constMap))
+  where fl m = map (\(f,s) -> (s,f)) m
+
+highToC :: (Eq a, Ord a, Eq b, Ord b) => [(a,b)] -> b -> a -> b
+highToC constMap valDefault query =
+  maybe valDefault id (lookup query constMap)
+
   
-newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq)
+-- newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq)
+data SampleUnit = Volts | MilliAmps | Unitless
+                                      deriving (Eq, Ord, Show)
 
-#{enum SampleUnit, SampleUnit
- , unit_volt   = UNIT_volt
- , unit_ma     = UNIT_mA
- , unit_none   = UNIT_none
-}
+sampleUnitMap :: [ (SampleUnit, CInt) ]
+sampleUnitMap = [ (Unitless, #const UNIT_none)
+                , (Volts,    #const UNIT_volt)
+                , (MilliAmps,  #const UNIT_mA)
+                ]
 
-newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
+sampleUnitToC :: SampleUnit -> CInt
+sampleUnitToC   = highToC sampleUnitMap (snd $ head sampleUnitMap)
+sampleUnitFromC :: CInt -> SampleUnit
+sampleUnitFromC = cToHigh sampleUnitMap Unitless
 
-#{enum RefType, RefType
- , aRefGnd    = AREF_GROUND
- , aRefCommon = AREF_COMMON
- , aRefDiff   = AREF_DIFF
- , aRefOther  = AREF_OTHER
-}
+
+--newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
+data Ref = GroundRef | CommonRef | DiffRef | OtherRef
+             deriving (Eq, Ord, Show)
+
+refMap :: [(Ref, CInt)]
+refMap =  [(GroundRef, #const AREF_GROUND)
+          ,(CommonRef, #const AREF_COMMON)
+          ,(DiffRef,   #const AREF_DIFF)
+          ,(OtherRef,  #const AREF_OTHER)
+          ]
+
+refToC = highToC refMap (snd $ head refMap)
+refFromC = cToHigh refMap GroundRef
 
 newtype CrFlag = CrFlag { flagVal :: CInt } deriving (Eq, Show)
+
+data ChanOptFlag = ChanDither | ChanAltSrc | ChanEdge | ChanGateInvert
+                 deriving (Eq, Ord, Show)
+
+chanOptMap :: [(ChanOptFlag, CInt)]
+chanOptMap = [(ChanDither, #const CR_DITHER)
+             ,(ChanAltSrc, #const CR_ALT_SOURCE)
+             ,(ChanEdge,   #const CR_EDGE)
+             ,(ChanGateInvert, #const CR_INVERT)
+             ]
+
+chanOptFromC = cToHigh chanOptMap ChanDither
+chanOptToC   = highToC chanOptMap (snd $ head chanOptMap)
 
 mergeFlags :: [CrFlag] -> CrFlag
 mergeFlags fs = CrFlag $ foldl (.|.) 0 (map flagVal fs)
 
-#{enum CrFlag, CrFlag
- , flag_cr_alt_filter  = CR_ALT_FILTER
- , flag_cr_dither      = CR_DITHER
- , flag_cr_deglitch    = CR_DEGLITCH
- , flag_cr_alt_source  = CR_ALT_SOURCE
- , flag_cr_edge        = CR_EDGE
- , flag_cr_invert      = CR_INVERT
-}
+
 
 newtype ConversionDirection = ConversionDirection { convDirVal :: CInt } deriving (Eq, Show)
 

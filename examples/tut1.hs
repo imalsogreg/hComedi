@@ -6,7 +6,7 @@ import System.HComedi
 subDev = SubDevice 0
 chan   = Channel 0
 range  = Range 0
-aRef   = ARef 0
+aRef   = GroundRef
 
 main :: IO ()
 main = do
