@@ -65,7 +65,7 @@ import Foreign.Ptr
 import Data.Maybe (fromJust, maybe)
 import qualified System.HComedi.ComediBase as B
 import qualified Control.Exception as E
-import qualified Control.Monad as M
+import qualified Control.Monad as M 
 
 --newtype DevFile = DevFile { devFileName :: String } deriving (Eq, Show)
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
@@ -77,7 +77,7 @@ data RangeInfo = RangeInfo { rngMin  :: Double
                            , rngMax  :: Double
                            , rngUnit :: SampleUnit } deriving (Eq, Show)
 
-rangeInfoToC :: RangeInfo -> B.RangeInfo
+rangeInfoToC :: RangeInfo ->  B.RangeInfo
 rangeInfoToC (RangeInfo rMin rMax rUnit) = 
   B.RangeInfo (CDouble rMin) (CDouble rMax) (B.unitVal $ toCUnitType rUnit)
     
