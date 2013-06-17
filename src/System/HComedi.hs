@@ -7,7 +7,10 @@ module System.HComedi (
   , Command  (..)
   , SubDeviceType (..)
   , Range (..)
+  , RangeInfo (..)
   , ARef (..)
+  , SampleUnit (..)
+  , OutOfRangeBehavior (..)
     
     -- * Intermediate level functions
   , withHandle
@@ -18,16 +21,24 @@ module System.HComedi (
   , getNRanges
   , getNChannels
   , getSubDeviceType
+  , getMaxData
   , boardName
   , driverName    
+  , findRange
+  , findSubDeviceByType
     
     -- * One-off I/O
   , aReadInteger
   , aReadNIntegers
   , aReadIntegerDelayedNS
   , aReadHint
-    
   , aWriteInteger
+    
+    -- * Conversion
+  , setGlobalOORBehavior
+  , getRangeInfo
+  , fromPhysIdeal
+  , toPhysIdeal
     
     -- * Device Administration
   , lock
@@ -36,10 +47,17 @@ module System.HComedi (
     -- * Low level functions
   , open
   , close
+    
+    -- * Utility / Debug
+  , fromCSubDeviceType
+  , toCSubDeviceType
+  , fromCUnitType
+  , toCUnitType
 
     
   ) where
 
+import qualified GHC.Int as I
 import Foreign
 import Foreign.C
 import Foreign.C.Error
@@ -55,6 +73,14 @@ data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
 data Range     = Range     { cRange     :: B.Range     } deriving (Eq, Show)  
 data ARef      = ARef      { cAref      :: B.ARef      } deriving (Eq, Show)
 
+data RangeInfo = RangeInfo { rngMin  :: Double
+                           , rngMax  :: Double
+                           , rngUnit :: SampleUnit } deriving (Eq, Show)
+
+rangeInfoToC :: RangeInfo -> B.RangeInfo
+rangeInfoToC (RangeInfo rMin rMax rUnit) = 
+  B.RangeInfo (CDouble rMin) (CDouble rMax) (B.unitVal $ toCUnitType rUnit)
+    
 data Command = Command { cCommand :: Int } deriving (Eq, Show)
 
 -- |ComediHandle handle for comedi device
@@ -103,6 +129,24 @@ getNRanges (Handle df p) (SubDevice s) (Channel c) =
   ("Comedi error getting n ranges for " ++ df)
   (B.c_comedi_get_n_ranges p s c) >>= return . fromIntegral
 
+getRangeInfo :: Handle -> SubDevice -> Channel -> Range -> IO RangeInfo
+getRangeInfo (Handle fn p) (SubDevice s) (Channel c) (Range r) =
+  do
+    ptr <- (B.c_comedi_get_range p s c r)
+    ri <- peek ptr
+    return $
+      RangeInfo 
+      (realToFrac $ B.rngMin ri) (realToFrac $ B.rngMax ri) 
+      (fromCUnitType $ B.SampleUnit $ B.rngUnit ri)
+
+data OutOfRangeBehavior = OOR_NaN | OOR_Number
+
+setGlobalOORBehavior :: OutOfRangeBehavior -> IO ()
+setGlobalOORBehavior b = B.c_comedi_set_global_oor_behavior (B.oorVal $ oorToC b)
+  where
+    oorToC OOR_NaN    = B.oor_nan
+    oorToC OOR_Number = B.oor_number
+
 getNChannels :: Handle -> SubDevice -> IO Int
 getNChannels (Handle df p) (SubDevice s) =
   throwErrnoIf (< 0)
@@ -114,6 +158,20 @@ getSubDeviceType (Handle df p) (SubDevice s) =
   throwErrnoIf ( < 0 )
   ("Comedi error getting subdevice type for " ++ df)
   (B.c_comedi_get_subdevice_type p s) >>= return . fromCSubDeviceType . B.SubDeviceType
+
+getMaxData :: Handle -> SubDevice -> Channel -> IO B.LSample
+getMaxData (Handle fn p) (SubDevice s) (Channel c) =
+  throwErrnoIf (<= 0)
+  ("Comedi error getting max data for " ++ fn ++ " subdevice " ++ show s)
+  (B.c_comedi_get_maxdata p s c)
+
+-- Seems to return -1 always.  My bug?
+findSubDeviceByType :: Handle -> SubDeviceType -> IO SubDevice
+findSubDeviceByType (Handle fd p) subDevT =
+  throwErrnoIf ( < 0 )
+  ("Comedi error with " ++ fd ++ " finding a subdevice of type " ++ show subDevT) 
+  (B.c_comedi_find_subdevice_by_type p (B.subdeviceVal (toCSubDeviceType subDevT))) >>=
+  return . SubDevice
 
 data SubDeviceType = Unused | AI | AO | DI | DO | DIO | 
                      Counter | Timer | Memory | Calib | Proc | Serial
@@ -146,7 +204,7 @@ subDevTypeMap =  [ (B.subdevice_unused,   Unused)
                  , (B.subdevice_serial,   Serial) 
                  ]
 
-aReadInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> IO Integer
+aReadInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> IO B.LSample
 aReadInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) =
   alloca $ \ptr -> do
     (throwErrnoIf (< 1) "Read error"
@@ -154,7 +212,7 @@ aReadInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) =
     v <- peek ptr
     return (fromIntegral v)
   
-aReadNIntegers :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO [Int]
+aReadNIntegers :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO [B.LSample]
 aReadNIntegers (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) n =
   allocaArray n $ \ptr -> do
     (throwErrnoIf ( < 0 ) "N Read error"
@@ -162,7 +220,7 @@ aReadNIntegers (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) n =
     vs <- peekArray n ptr
     return $ map fromIntegral vs
 
-aReadIntegerDelayedNS :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO Int
+aReadIntegerDelayedNS :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO B.LSample
 aReadIntegerDelayedNS (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) dNS =
   alloca $ \ptr -> do
     (throwErrnoIf (< 0) "Read delayed error"
@@ -175,11 +233,25 @@ aReadHint (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) =
   throwErrnoIf (< 0) ("Comedi read hint error for " ++ fn ++ "  channel " ++ show c)
   (B.c_comedi_data_read_hint p s c r a) >> return ()
 
-aWriteInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> Int -> IO ()
+aWriteInteger :: Handle -> SubDevice -> Channel -> Range -> ARef -> B.LSample -> IO ()
 aWriteInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) (ARef a) vInt = 
   throwErrnoIf (< 0) 
   ("Comedi write error for " ++ fn ++ "  channel " ++ show s ++ " := " ++ show vInt)
   (B.c_comedi_data_write p s c r a (fromIntegral vInt)) >> return ()
+
+fromPhysIdeal :: Double -> RangeInfo -> B.LSample -> IO B.LSample
+fromPhysIdeal dataVal r maxData =
+  alloca $ (\ptr -> poke ptr (rangeInfoToC r) >> 
+                    (B.c_comedi_from_phys (CDouble dataVal) ptr maxData) >>=
+                    return . fromIntegral)
+  
+toPhysIdeal :: B.LSample -> RangeInfo -> B.LSample -> IO Double
+toPhysIdeal rawVal r maxData =
+  alloca $ (\ptr -> poke ptr (rangeInfoToC r) >>
+                    (B.c_comedi_to_phys rawVal ptr maxData) >>=
+                    return . realToFrac)
+    
+
 
 lock :: Handle -> SubDevice -> IO ()
 lock (Handle fn p) (SubDevice s) = 
@@ -192,6 +264,29 @@ unlock (Handle fn p) (SubDevice s) =
   throwErrnoIf ( < 0 )
   ("Comedi error locking device " ++ fn ++ " subdevice " ++ show s)
   (B.c_comedi_unlock p s) >> return ()
+
+findRange :: Handle -> SubDevice -> Channel -> SampleUnit -> Double -> Double -> IO Int
+findRange (Handle fn p) (SubDevice s) (Channel c) unit sMin sMax =
+  throwErrnoIf ( < 0 )
+  ("Comedi error finding range for " ++ fn ++ " channel " ++ show c ++ 
+   " containing " ++ show sMin ++ " and " ++ show sMax)
+  (B.c_comedi_find_range p s c (B.unitVal (toCUnitType unit))
+   (CDouble sMin) (CDouble sMax)) >>= 
+  return . fromIntegral
+
+data SampleUnit = Volts | MilliAmps | Unitless deriving (Show, Eq, Ord, Enum)
+
+fromCUnitType :: B.SampleUnit -> SampleUnit
+fromCUnitType = maybe Unitless id . flip lookup unitMap
+
+toCUnitType :: SampleUnit -> B.SampleUnit
+toCUnitType = maybe B.unit_none id . flip lookup (map flipTuple unitMap)
+
+unitMap = [ (B.unit_volt, Volts)
+          , (B.unit_ma,   MilliAmps)
+          , (B.unit_none, Unitless)
+          ]
+  
 
 {-
 type LSample = LC.LSample

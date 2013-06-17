@@ -98,7 +98,9 @@ foreign import ccall safe "comedilib.h comedi_fileno"
   c_comedi_fileno :: Handle -> IO CInt
                      
 foreign import ccall safe "comedilib.h comedi_find_range"
-  c_comedi_find_range :: Handle -> SubDevice -> ChanInd -> Unit -> CDouble -> IO CDouble
+  c_comedi_find_range :: Handle -> SubDevice -> ChanInd -> Unit -> 
+                         CDouble -> CDouble -> 
+                         IO CInt
 
 foreign import ccall safe "comedilib.h comedi_find_subdevice_by_type"
   c_comedi_find_subdevice_by_type :: Handle -> CInt -> IO CInt
@@ -106,7 +108,8 @@ foreign import ccall safe "comedilib.h comedi_find_subdevice_by_type"
 foreign import ccall safe "comedilib.h comedi_from_phys" 
   c_comedi_from_phys :: CDouble ->         -- data sample
                         Ptr RangeInfo ->   -- RangeInfo c struct
-                        LSample            -- maxdata
+                        LSample       ->   -- maxdata
+                        IO CInt
 
 foreign import ccall safe "comedilib.h comedi_from_physical"
   c_comedi_from_physical :: CDouble ->  -- data sample
@@ -265,7 +268,7 @@ foreign import ccall safe "comedilib.h comedi_get_range"
                         IO (Ptr RangeInfo)
 
 foreign import ccall safe "comedilib.h comedi_to_phys"
-  c_comedi_to_phys :: LSample -> Ptr RangeInfo -> LSample -> CDouble
+  c_comedi_to_phys :: LSample -> Ptr RangeInfo -> LSample -> IO CDouble
 
 
 foreign import ccall safe "comedilib.h comedi_set_global_oor_behavior"
@@ -637,7 +640,7 @@ instance Storable PolynomialT where
 data RangeInfo = RangeInfo { rngMin  :: CDouble
                            , rngMax  :: CDouble
                            , rngUnit :: CInt
-                           }
+                           } deriving (Eq, Show)
 
 instance Storable RangeInfo where
   sizeOf     _ = (#size comedi_range)
@@ -661,12 +664,12 @@ newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
  , oor_number  = COMEDI_OOR_NUMBER
 }
   
-newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq, Show)
+newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq)
 
 #{enum SampleUnit, SampleUnit
  , unit_volt   = UNIT_volt
  , unit_ma     = UNIT_mA
- , unit_num    = UNIT_none
+ , unit_none   = UNIT_none
 }
 
 newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
