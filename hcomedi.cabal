@@ -31,6 +31,12 @@ executable tut2
   build-depends:    base >= 4 && <= 5
                     , hcomedi
 
+executable tut3
+  main-is:          tut3.hs
+  hs-source-dirs:   examples, src/System
+  build-depends:    base >= 4 && <= 5
+                    , hcomedi
+
 executable tmp
   main-is:          tmp.hs
   hs-source-dirs:   examples, src/System

@@ -11,6 +11,7 @@ module System.HComedi (
   , ARef (..)
   , SampleUnit (..)
   , OutOfRangeBehavior (..)
+  , ChanOpt (..)
     
     -- * Intermediate level functions
   , withHandle
@@ -39,6 +40,9 @@ module System.HComedi (
   , getRangeInfo
   , fromPhysIdeal
   , toPhysIdeal
+
+    -- * Async Commands 
+  , genericTimedCommand
     
     -- * Device Administration
   , lock
@@ -77,11 +81,55 @@ data RangeInfo = RangeInfo { rngMin  :: Double
                            , rngMax  :: Double
                            , rngUnit :: SampleUnit } deriving (Eq, Show)
 
+data ChanOpt = ChanOpt { chanDevice        :: Handle
+                       , chanSubDevice     :: SubDevice
+                       , chanSignalLims    :: (Double,Double)
+                       , chanARefInd       :: ARef
+                       , preamplification  :: Double
+                       } deriving (Eq, Show)
+
+data Command = Command { cmdSubdev    :: SubDevice
+                       , cmdFlags     :: CInt
+                       , cmdStart     :: (CInt, CInt)
+                       , cmdScanBegin :: (CInt, CInt)
+                       , cmdConvert   :: (CInt, CInt)
+                       , cmdScanEnd   :: (CInt, CInt)
+                       , cmdStop      :: (CInt, CInt)
+                       , cmdChanList  :: [(Channel,Range,ARef)]
+                       , cmdData      :: [Double]
+                       } deriving (Eq, Show)
+
+commandToC :: Command -> IO B.Command
+commandToC (Command (SubDevice sDev) flgs (stSrc, stArg) (scbSrc, scbArg)
+            (cnvSrc, cnvArg) (scnSrc, scnArg) (stpSrc, stpArg)
+            chList dataList) =
+  allocaArray nC (\chanPtr ->
+                   allocaArray nD (\dataPtr -> do
+                                      pokeArray chanPtr cChans
+                                      pokeArray dataPtr dataList
+                                      return $
+                                        B.Command sDev flgs
+                                        stSrc stArg scbSrc scbArg
+                                        cnvSrc cnvArg scnSrc scnArg
+                                        stpSrc stpArg
+                                        chanPtr nC
+                                        dataPtr nD
+                                ))
+  where
+    nC = length chList
+    nD = length dataList
+    cChans = map channelOptToC chList
+
+
+
+channelOptToC :: (Channel,Range,ARef) -> CInt
+channelOptToC (Channel c) (Range r) (ARef a) = B.cr_pack c r a
+    
 rangeInfoToC :: RangeInfo ->  B.RangeInfo
 rangeInfoToC (RangeInfo rMin rMax rUnit) = 
   B.RangeInfo (CDouble rMin) (CDouble rMax) (B.unitVal $ toCUnitType rUnit)
     
-data Command = Command { cCommand :: Int } deriving (Eq, Show)
+--data Command = Command { cCommand :: Int } deriving (Eq, Show)
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
@@ -251,7 +299,14 @@ toPhysIdeal rawVal r maxData =
                     (B.c_comedi_to_phys rawVal ptr maxData) >>=
                     return . realToFrac)
     
-
+genericTimedCommand :: Handle -> SubDevice ->
+                       Int -> Int -> IO Command
+genericTimedCommand (Handle fn p) (SubDevice s) nChan tScanNS =
+  alloca $
+  (\cp -> do
+      (B.c_comedi_get_cmd_generic_timed p s cp nChan tScanNS)
+      cCmd <- peek
+      return $ commandFromC cCmd )
 
 lock :: Handle -> SubDevice -> IO ()
 lock (Handle fn p) (SubDevice s) = 
