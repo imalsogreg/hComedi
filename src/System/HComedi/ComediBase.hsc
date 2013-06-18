@@ -488,6 +488,7 @@ data Command = Command { cmd_subdev          :: SubDevice
                        , cmd_data            :: Ptr Sample
                        , cmd_data_len        :: CInt
                        }
+             deriving (Eq, Show)
                
 instance Storable Command where
   sizeOf    _ = (#size comedi_cmd)
@@ -746,23 +747,53 @@ newtype IODirection = IODirection { ioDirVal :: CInt } deriving (Eq, Show)
  , io_direction_output  = COMEDI_OUTPUT
 }
 
-newtype SubDeviceType = SubDeviceType { subdeviceVal :: CInt } deriving (Eq, Ord, Show)
+data TrigSrc = TrigNow | TrigFollow | TrigExternal | TrigInternal 
+             | TrigTimer | TrigCount | TrigNone | TrigTime | TrigOther
+             deriving (Eq, Ord, Show)
+                      
+trigSrcMap :: [(TrigSrc, CInt)]
+trigSrcMap = [(TrigNow, #const TRIG_NOW)
+             ,(TrigFollow, #const TRIG_FOLLOW)
+             ,(TrigExternal, #const TRIG_EXT)
+             ,(TrigInternal, #const TRIG_INT)
+             ,(TrigTimer, #const TRIG_TIMER)
+             ,(TrigCount, #const TRIG_COUNT)
+             ,(TrigNone, #const TRIG_NONE)
+             ,(TrigTime, #const TRIG_TIME)
+             ,(TrigOther, #const TRIG_OTHER)
+             ]
+             
+trigToC :: TrigSrc -> CInt
+trigToC  = highToC trigSrcMap (snd (head trigSrcMap))
 
-#{enum SubDeviceType, SubDeviceType
- , subdevice_unused  = COMEDI_SUBD_UNUSED
- , subdevice_ai      = COMEDI_SUBD_AI
- , subdevice_ao      = COMEDI_SUBD_AO
- , subdevice_di      = COMEDI_SUBD_DI
- , subdevice_do      = COMEDI_SUBD_DO
- , subdevice_dio     = COMEDI_SUBD_DIO
- , subdevice_counter = COMEDI_SUBD_COUNTER
- , subdevice_timer   = COMEDI_SUBD_TIMER
- , subdevice_memory  = COMEDI_SUBD_MEMORY
- , subdevice_calib   = COMEDI_SUBD_CALIB
- , subdevice_proc    = COMEDI_SUBD_PROC
- , subdevice_serial  = COMEDI_SUBD_SERIAL
-} -- documentation also lists COMEDI_SUBD_PWM, but this doesn't seem to be in my comedi.h
+trigFromC :: CInt -> TrigSrc
+trigFromC = cToHigh trigSrcMap TrigNow
+
+data SubDeviceType = UnusedDevice | AI | AO | DI | DO | DIO | Counter | Timer 
+                   | MemoryDevice | CalibDevice | ProcDevice | SerialDevice
+                   deriving (Eq, Ord, Show)
+
+subDeviceTypeMap :: [(SubDeviceType, CInt)]
+subDeviceTypeMap = [(UnusedDevice, #const COMEDI_SUBD_UNUSED)
+               , (AI,           #const COMEDI_SUBD_AI)
+               , (AO,           #const COMEDI_SUBD_AO)
+               , (DI,           #const COMEDI_SUBD_DI)
+               , (DO,           #const COMEDI_SUBD_DO)
+               , (DIO,          #const COMEDI_SUBD_DIO)
+               , (Counter,      #const COMEDI_SUBD_COUNTER)
+               , (Timer,        #const COMEDI_SUBD_TIMER)
+               , (MemoryDevice, #const COMEDI_SUBD_MEMORY)
+               , (CalibDevice,  #const COMEDI_SUBD_CALIB)
+               , (ProcDevice,   #const COMEDI_SUBD_PROC)
+               , (SerialDevice, #const COMEDI_SUBD_SERIAL)
+               ] -- documentation also lists COMEDI_SUBD_PWM, but this doesn't seem to be in my comedi.h
                    
+subDeviceTypeToC :: SubDeviceType -> CInt
+subDeviceTypeToC = highToC subDeviceTypeMap (snd $ head subDeviceTypeMap)
+
+subDeviceTypeFromC :: CInt -> SubDeviceType
+subDeviceTypeFromC = cToHigh subDeviceTypeMap UnusedDevice
+               
 newtype SubDeviceFlags = SubDeviceFlags { subdevFlagVal :: CInt } deriving (Eq, Show)
     
 #{enum SubDeviceFlags, SubDeviceFlags
