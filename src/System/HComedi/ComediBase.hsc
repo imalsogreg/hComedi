@@ -488,6 +488,7 @@ data Command = Command { cmd_subdev          :: SubDevice
                        , cmd_data            :: Ptr Sample
                        , cmd_data_len        :: CInt
                        }
+             deriving (Eq, Show)
                
 instance Storable Command where
   sizeOf    _ = (#size comedi_cmd)
@@ -637,63 +638,100 @@ instance Storable PolynomialT where
     (#poke comedi_polynomial_t, expansion_origin) ptr sExpan
     (#poke comedi_polynomial_t, order) ptr sOrder
     
-data RangeInfo = RangeInfo { rngMin  :: CDouble
-                           , rngMax  :: CDouble
-                           , rngUnit :: CInt
+data RangeInfo = RangeInfo { rngMin  :: Double
+                           , rngMax  :: Double
+                           , rngUnit :: SampleUnit
                            } deriving (Eq, Show)
 
 instance Storable RangeInfo where
   sizeOf     _ = (#size comedi_range)
   alignment  _ = alignment (undefined :: CDouble)
   peek ptr = do
-    pMin  <- (#peek comedi_range, min)  ptr
-    pMax  <- (#peek comedi_range, max)  ptr
-    pUnit <- (#peek comedi_range, unit) ptr
-    return RangeInfo {rngMin=pMin, rngMax=pMax, rngUnit=pUnit}
+    pMin  <- (#peek comedi_range, min)  ptr :: IO CDouble
+    pMax  <- (#peek comedi_range, max)  ptr :: IO CDouble
+    pUnit <- (#peek comedi_range, unit) ptr :: IO CInt
+    return $
+      RangeInfo (realToFrac pMin) (realToFrac pMax) (sampleUnitFromC pUnit)
   poke ptr (RangeInfo rMin rMax rUnit) = do
-    (#poke comedi_range, min)  ptr rMin
-    (#poke comedi_range, max)  ptr rMax
-    (#poke comedi_range, unit) ptr rUnit
+    (#poke comedi_range, min)  ptr (realToFrac rMin :: CDouble)
+    (#poke comedi_range, max)  ptr (realToFrac rMax :: CDouble)
+    (#poke comedi_range, unit) ptr (sampleUnitToC rUnit :: CInt)
 
 
-newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
-                           deriving (Eq, Show)
+--newtype OutOfRangeBehavior = OutOfRangeBehavior { oorVal :: CInt }
+--                           deriving (Eq, Show)
+data OutOfRangeBehavior = OOR_NaN | OOR_Number deriving (Eq, Ord, Show)
 
-#{enum OutOfRangeBehavior, OutOfRangeBehavior
- , oor_nan     = COMEDI_OOR_NAN
- , oor_number  = COMEDI_OOR_NUMBER
-}
+outOfRangeMap :: [(OutOfRangeBehavior, CInt)]
+outOfRangeMap = [(OOR_NaN, #const COMEDI_OOR_NAN)
+                ,(OOR_Number, #const COMEDI_OOR_NUMBER)
+                ]
+
+outOfRangeToC = highToC outOfRangeMap (snd (head outOfRangeMap))
+outOfRangeFromC = cToHigh outOfRangeMap OOR_NaN
+
+
+
+
+cToHigh :: (Eq a, Ord a, Eq b, Ord b) => [(a, b)] -> a -> b -> a
+cToHigh constMap valDefault query =
+  maybe valDefault id (lookup query (fl constMap))
+  where fl m = map (\(f,s) -> (s,f)) m
+
+highToC :: (Eq a, Ord a, Eq b, Ord b) => [(a,b)] -> b -> a -> b
+highToC constMap valDefault query =
+  maybe valDefault id (lookup query constMap)
+
   
-newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq)
+-- newtype SampleUnit = SampleUnit { unitVal :: CInt } deriving (Eq)
+data SampleUnit = Volts | MilliAmps | Unitless
+                                      deriving (Eq, Ord, Show)
 
-#{enum SampleUnit, SampleUnit
- , unit_volt   = UNIT_volt
- , unit_ma     = UNIT_mA
- , unit_none   = UNIT_none
-}
+sampleUnitMap :: [ (SampleUnit, CInt) ]
+sampleUnitMap = [ (Unitless, #const UNIT_none)
+                , (Volts,    #const UNIT_volt)
+                , (MilliAmps,  #const UNIT_mA)
+                ]
 
-newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
+sampleUnitToC :: SampleUnit -> CInt
+sampleUnitToC   = highToC sampleUnitMap (snd $ head sampleUnitMap)
+sampleUnitFromC :: CInt -> SampleUnit
+sampleUnitFromC = cToHigh sampleUnitMap Unitless
 
-#{enum RefType, RefType
- , aRefGnd    = AREF_GROUND
- , aRefCommon = AREF_COMMON
- , aRefDiff   = AREF_DIFF
- , aRefOther  = AREF_OTHER
-}
+
+--newtype RefType = RefType { refTypeVal :: CInt } deriving (Eq, Show)
+data Ref = GroundRef | CommonRef | DiffRef | OtherRef
+             deriving (Eq, Ord, Show)
+
+refMap :: [(Ref, CInt)]
+refMap =  [(GroundRef, #const AREF_GROUND)
+          ,(CommonRef, #const AREF_COMMON)
+          ,(DiffRef,   #const AREF_DIFF)
+          ,(OtherRef,  #const AREF_OTHER)
+          ]
+
+refToC = highToC refMap (snd $ head refMap)
+refFromC = cToHigh refMap GroundRef
 
 newtype CrFlag = CrFlag { flagVal :: CInt } deriving (Eq, Show)
+
+data ChanOptFlag = ChanDither | ChanAltSrc | ChanEdge | ChanGateInvert
+                 deriving (Eq, Ord, Show)
+
+chanOptMap :: [(ChanOptFlag, CInt)]
+chanOptMap = [(ChanDither, #const CR_DITHER)
+             ,(ChanAltSrc, #const CR_ALT_SOURCE)
+             ,(ChanEdge,   #const CR_EDGE)
+             ,(ChanGateInvert, #const CR_INVERT)
+             ]
+
+chanOptFromC = cToHigh chanOptMap ChanDither
+chanOptToC   = highToC chanOptMap (snd $ head chanOptMap)
 
 mergeFlags :: [CrFlag] -> CrFlag
 mergeFlags fs = CrFlag $ foldl (.|.) 0 (map flagVal fs)
 
-#{enum CrFlag, CrFlag
- , flag_cr_alt_filter  = CR_ALT_FILTER
- , flag_cr_dither      = CR_DITHER
- , flag_cr_deglitch    = CR_DEGLITCH
- , flag_cr_alt_source  = CR_ALT_SOURCE
- , flag_cr_edge        = CR_EDGE
- , flag_cr_invert      = CR_INVERT
-}
+
 
 newtype ConversionDirection = ConversionDirection { convDirVal :: CInt } deriving (Eq, Show)
 
@@ -709,23 +747,53 @@ newtype IODirection = IODirection { ioDirVal :: CInt } deriving (Eq, Show)
  , io_direction_output  = COMEDI_OUTPUT
 }
 
-newtype SubDeviceType = SubDeviceType { subdeviceVal :: CInt } deriving (Eq, Ord, Show)
+data TrigSrc = TrigNow | TrigFollow | TrigExternal | TrigInternal 
+             | TrigTimer | TrigCount | TrigNone | TrigTime | TrigOther
+             deriving (Eq, Ord, Show)
+                      
+trigSrcMap :: [(TrigSrc, CInt)]
+trigSrcMap = [(TrigNow, #const TRIG_NOW)
+             ,(TrigFollow, #const TRIG_FOLLOW)
+             ,(TrigExternal, #const TRIG_EXT)
+             ,(TrigInternal, #const TRIG_INT)
+             ,(TrigTimer, #const TRIG_TIMER)
+             ,(TrigCount, #const TRIG_COUNT)
+             ,(TrigNone, #const TRIG_NONE)
+             ,(TrigTime, #const TRIG_TIME)
+             ,(TrigOther, #const TRIG_OTHER)
+             ]
+             
+trigToC :: TrigSrc -> CInt
+trigToC  = highToC trigSrcMap (snd (head trigSrcMap))
 
-#{enum SubDeviceType, SubDeviceType
- , subdevice_unused  = COMEDI_SUBD_UNUSED
- , subdevice_ai      = COMEDI_SUBD_AI
- , subdevice_ao      = COMEDI_SUBD_AO
- , subdevice_di      = COMEDI_SUBD_DI
- , subdevice_do      = COMEDI_SUBD_DO
- , subdevice_dio     = COMEDI_SUBD_DIO
- , subdevice_counter = COMEDI_SUBD_COUNTER
- , subdevice_timer   = COMEDI_SUBD_TIMER
- , subdevice_memory  = COMEDI_SUBD_MEMORY
- , subdevice_calib   = COMEDI_SUBD_CALIB
- , subdevice_proc    = COMEDI_SUBD_PROC
- , subdevice_serial  = COMEDI_SUBD_SERIAL
-} -- documentation also lists COMEDI_SUBD_PWM, but this doesn't seem to be in my comedi.h
+trigFromC :: CInt -> TrigSrc
+trigFromC = cToHigh trigSrcMap TrigNow
+
+data SubDeviceType = UnusedDevice | AI | AO | DI | DO | DIO | Counter | Timer 
+                   | MemoryDevice | CalibDevice | ProcDevice | SerialDevice
+                   deriving (Eq, Ord, Show)
+
+subDeviceTypeMap :: [(SubDeviceType, CInt)]
+subDeviceTypeMap = [(UnusedDevice, #const COMEDI_SUBD_UNUSED)
+               , (AI,           #const COMEDI_SUBD_AI)
+               , (AO,           #const COMEDI_SUBD_AO)
+               , (DI,           #const COMEDI_SUBD_DI)
+               , (DO,           #const COMEDI_SUBD_DO)
+               , (DIO,          #const COMEDI_SUBD_DIO)
+               , (Counter,      #const COMEDI_SUBD_COUNTER)
+               , (Timer,        #const COMEDI_SUBD_TIMER)
+               , (MemoryDevice, #const COMEDI_SUBD_MEMORY)
+               , (CalibDevice,  #const COMEDI_SUBD_CALIB)
+               , (ProcDevice,   #const COMEDI_SUBD_PROC)
+               , (SerialDevice, #const COMEDI_SUBD_SERIAL)
+               ] -- documentation also lists COMEDI_SUBD_PWM, but this doesn't seem to be in my comedi.h
                    
+subDeviceTypeToC :: SubDeviceType -> CInt
+subDeviceTypeToC = highToC subDeviceTypeMap (snd $ head subDeviceTypeMap)
+
+subDeviceTypeFromC :: CInt -> SubDeviceType
+subDeviceTypeFromC = cToHigh subDeviceTypeMap UnusedDevice
+               
 newtype SubDeviceFlags = SubDeviceFlags { subdevFlagVal :: CInt } deriving (Eq, Show)
     
 #{enum SubDeviceFlags, SubDeviceFlags
