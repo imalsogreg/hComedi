@@ -11,6 +11,7 @@ module System.HComedi (
   , SampleUnit (..)
   , B.OutOfRangeBehavior (..)
   , B.ChanOptFlag (..)
+  , B.SubDeviceFlag (..)
   , B.TrigSrc (..)
     
     -- * Intermediate level functions
@@ -18,10 +19,12 @@ module System.HComedi (
   , withHandles
     
     -- * Descriptive functions
+  , getSystemInfo
   , getNSubDevices
   , getNRanges
   , getNChannels
   , getSubDeviceType
+  , getSubDeviceFlags
   , getMaxData
   , boardName
   , driverName    
@@ -30,6 +33,7 @@ module System.HComedi (
     
     -- * Commands
   , timedCommand
+  , execCommand
     
     -- * One-off I/O
   , aReadInteger
@@ -78,6 +82,58 @@ data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
 data Range     = Range     { cRange     :: B.Range     } deriving (Eq, Show)  
 
+data BoardInfo =  BoardInfo { biName  :: String
+                            , biSubDevices :: [SubDeviceInfo]}
+               deriving (Eq, Show)
+
+data SubDeviceInfo = SubDeviceInfo { sdiType   :: B.SubDeviceType
+                                   , sdiNChans :: Int
+                                   , sdiFlags  :: [B.SubDeviceFlag]
+                                   , sdiRanges :: [(Int, RangeInfo)]}
+                   deriving (Eq, Show)
+
+data SystemInfo = SystemInfo { siDriverName  :: String
+                             , siVersionCode :: VersionCode
+                             , siBoards      :: [BoardInfo]
+                             }  deriving (Eq, Show)
+
+getSystemInfo :: [Handle] -> IO SystemInfo
+getSystemInfo hs = do
+  driver  <- driverName $ head hs
+  versionCode <- getDriverVersionCode $ head hs
+  boards  <- M.forM hs $ \h -> do
+    bName   <- boardName h
+    nSubDev <- getNSubDevices h
+    subDevs <- M.forM [0 .. nSubDev - 1] $ \s -> do
+      sdType  <- getSubDeviceType h (SubDevice $ fromIntegral s)
+      sdNChan <- getNChannels  h (SubDevice $ fromIntegral s)
+      sdFlags <- getSubDeviceFlags h (SubDevice $ fromIntegral s)
+--      nRanges <- getNRanges h (SubDevice $ fromIntegral s) (Channel 0)
+--      ranges <- M.forM [0 .. nRanges - 1] $ \rN -> do
+--        getRangeInfo h (SubDevice $ fromIntegral s)
+--          (Channel 0) (Range $ fromIntegral rN)
+      let ranges = []
+      let rangeMap = zip [0..] ranges
+      return $ SubDeviceInfo sdType sdNChan sdFlags rangeMap
+    return $ BoardInfo bName subDevs
+  return $ SystemInfo driver versionCode boards
+
+data VersionCode = VersionCode Int32 Int32 Int32 deriving (Eq)
+
+instance Show VersionCode where
+  show (VersionCode maj minr rev) = show maj ++
+                                    "." ++ show minr ++
+                                    "." ++ show rev
+
+getDriverVersionCode :: Handle -> IO VersionCode
+getDriverVersionCode (Handle fn p) =
+  (throwErrnoIf (<0) ("Comedi couldn't get version code")
+   (B.c_comedi_get_version_code p)) >>= return . cIntToCode
+    where cIntToCode (CInt i) = VersionCode (c0 i) (c1 i) (c2 i)
+          c0 i = (i `shiftR` 16) .&. 0xff
+          c1 i = (i `shiftR` 8)  .&. 0xff
+          c2 i =  i              .&. 0xff
+
 mkChanOpt :: (Channel, Range, B.Ref, [B.ChanOptFlag]) -> CInt
 mkChanOpt ((Channel c), (Range r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
   where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
@@ -99,6 +155,13 @@ timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
   where nChan = length chanList
         
 
+execCommand :: Handle -> B.Command -> IO ()
+execCommand (Handle fn p) cmd =
+  alloca $ \cmdP -> do
+    poke cmdP cmd
+    (throwErrnoIf (<0) ("Comedi error executing command")
+     (B.c_comedi_command p cmdP))
+    return ()
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
@@ -170,6 +233,11 @@ getSubDeviceType (Handle df p) (SubDevice s) =
   ("Comedi error getting subdevice type for " ++ df)
   (B.c_comedi_get_subdevice_type p s) >>= return . B.subDeviceTypeFromC
 
+getSubDeviceFlags :: Handle -> SubDevice -> IO [B.SubDeviceFlag]
+getSubDeviceFlags (Handle fn p) (SubDevice s) =
+  (throwErrnoIf (==(-1)) ("Comedi couldn't get subdevice flags for " ++ fn)
+   (B.c_comedi_get_subdevice_flags p s)) >>= return . B.subDeviceFlagsFromC
+   
 getMaxData :: Handle -> SubDevice -> Channel -> IO B.LSample
 getMaxData (Handle fn p) (SubDevice s) (Channel c) =
   throwErrnoIf (<= 0)
