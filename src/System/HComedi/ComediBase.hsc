@@ -489,7 +489,7 @@ data Command = Command { cmd_subdev          :: SubDevice
                        , cmd_data_len        :: CInt
                        }
              deriving (Eq, Show)
-               
+
 instance Storable Command where
   sizeOf    _ = (#size comedi_cmd)
   alignment _ = alignment (undefined :: CDouble)

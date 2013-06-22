@@ -78,26 +78,6 @@ data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
 data Range     = Range     { cRange     :: B.Range     } deriving (Eq, Show)  
 
-mkChanOpt :: (Channel, Range, B.Ref, [B.ChanOptFlag]) -> CInt
-mkChanOpt ((Channel c), (Range r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
-  where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
-  
-timedCommand :: Handle -> SubDevice -> Int -> Int -> [(Channel,Range,B.Ref,[B.ChanOptFlag])] ->
-                IO B.Command
-timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
-  allocaArray nChan $ \cmdP ->
-  mallocForeignPtr >>= (flip withForeignPtr)
-      (\chansP -> do 
-        pokeArray chansP  $ map mkChanOpt chanList
-        (throwErrnoIf (< 0) ("Comedi error making command") 
-         (B.c_comedi_get_cmd_generic_timed p s cmdP 
-          (fromIntegral nChan) (fromIntegral sPeriodNS)))
-        cmd <- peek cmdP
-        return $ cmd {B.cmd_chanlist=chansP
-                     ,B.cmd_chanlist_len = fromIntegral nChan
-                     })
-  where nChan = length chanList
-        
 
 
 -- |ComediHandle handle for comedi device
@@ -113,7 +93,51 @@ withHandles dfs act = E.bracket
                       (M.mapM open dfs)
                       (M.mapM_ close)
                       act
-                      
+
+mkChanOpt :: (Channel, Range, B.Ref, [B.ChanOptFlag]) -> CInt
+mkChanOpt ((Channel c), (Range r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
+  where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
+  
+timedCommand :: Handle -> SubDevice -> Int -> Int -> [(Channel,Range,B.Ref,[B.ChanOptFlag])] ->
+                IO B.Command
+timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
+  allocaArray nChan $ \cmdP ->
+  mallocForeignPtr >>= (flip withForeignPtr) 
+  (\dataP ->
+    mallocForeignPtr >>= (flip withForeignPtr)
+    (\chansP -> do 
+        pokeArray chansP  $ map mkChanOpt chanList
+        (throwErrnoIf (< 0) ("Comedi error making command") 
+         (B.c_comedi_get_cmd_generic_timed p s cmdP 
+          (fromIntegral nChan) (fromIntegral sPeriodNS)))
+        cmd <- peek cmdP
+        return $ cmd {B.cmd_chanlist = chansP
+                     ,B.cmd_chanlist_len = fromIntegral nChan
+                     ,B.cmd_data = dataP
+                     }))
+  where nChan = length chanList
+        
+data TestResult = NoChange | SrcChange | ArgChange | ChanListChange
+                deriving (Eq, Ord, Show)
+        
+cToResult :: CInt -> TestResult
+cToResult n 
+  | n == 0               = NoChange
+  | n == 1 `or` n == 2   = SrcChange
+  | n == 3 `or` n == 4   = ArgChange
+  | n == 5               = ChanListChange
+
+validateCommand :: Handle -> [TestResult] -> Command -> IO Command
+validateCommand (Handle fd p) unacceptableResults cmd =
+  alloca $ \cmdP -> do
+    poke cmdP cmd
+    res <- B.c_comedi_command_test fd cmdP
+    return $ if res `elem` unacceptableResults
+             then (error $ "Comedi error sending command to " ++ fn ++ " : " ++ show cmd
+                   else
+      
+  
+                   
 open :: FilePath -> IO Handle
 open df = throwErrnoIfNull ("Comedi open error for " ++ df) 
           (withCString df B.c_comedi_open ) >>= 
