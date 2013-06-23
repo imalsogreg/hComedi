@@ -111,11 +111,15 @@ getSystemInfo hs = do
       sdType  <- getSubDeviceType h (SubDevice $ fromIntegral s)
       sdNChan <- getNChannels  h (SubDevice $ fromIntegral s)
       sdFlags <- getSubDeviceFlags h (SubDevice $ fromIntegral s)
---      nRanges <- getNRanges h (SubDevice $ fromIntegral s) (Channel 0)
---      ranges <- M.forM [0 .. nRanges - 1] $ \rN -> do
---        getRangeInfo h (SubDevice $ fromIntegral s)
---          (Channel 0) (Range $ fromIntegral rN)
-      let ranges = []
+      (nRanges,ranges) <- if sdType `elem` [B.AI,B.AO]
+                          then do
+                            nRanges' <- getNRanges h (
+                              SubDevice $ fromIntegral s) (Channel 0)
+                            ranges' <- M.forM [0 .. nRanges' -1] $ \rN ->
+                              getRangeInfo h (SubDevice $ fromIntegral s)
+                              (Channel 0) (Range $ fromIntegral rN)
+                            return (nRanges', ranges')
+                          else return (0, [])
       let rangeMap = zip [0..] ranges
       return $ SubDeviceInfo sdType sdNChan sdFlags rangeMap
     return $ BoardInfo bName subDevs
@@ -192,7 +196,7 @@ validateCommand h@(Handle fd p) unacceptableResults cmd =
                   | otherwise    -> putStrLn ("Res: " ++ show res) >> validateCommand h unacceptableResults cmd'
       
 execCommand :: Handle -> ValidCommand -> IO ()
-execCommand (Handle fn p) cmd =
+execCommand (Handle fn p) (ValidCommand cmd) =
   alloca $ \cmdP -> do
     poke cmdP cmd
     (throwErrnoIf (<0) ("Comedi error executing command")
