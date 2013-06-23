@@ -793,32 +793,50 @@ subDeviceTypeToC = highToC subDeviceTypeMap (snd $ head subDeviceTypeMap)
 
 subDeviceTypeFromC :: CInt -> SubDeviceType
 subDeviceTypeFromC = cToHigh subDeviceTypeMap UnusedDevice
-               
-newtype SubDeviceFlags = SubDeviceFlags { subdevFlagVal :: CInt } deriving (Eq, Show)
-    
-#{enum SubDeviceFlags, SubDeviceFlags
- , sdf_busy            = SDF_BUSY
- , sdf_busy_owner      = SDF_BUSY_OWNER
- , sdf_locked          = SDF_LOCKED
- , sdf_lock_owner      = SDF_LOCK_OWNER
- , sdf_maxdata         = SDF_MAXDATA
- , sdf_flags           = SDF_FLAGS
- , sdf_rangetype       = SDF_RANGETYPE
- , sdf_cmd             = SDF_CMD
- , sdf_soft_calibrated = SDF_SOFT_CALIBRATED
- , sdf_readable        = SDF_READABLE
- , sdf_writable        = SDF_WRITABLE
- , sdf_internal        = SDF_INTERNAL
- , sdf_ground          = SDF_GROUND
- , sdf_common          = SDF_COMMON
- , sdf_diff            = SDF_DIFF
- , sdf_other           = SDF_OTHER
- , sdf_dither          = SDF_DITHER
- , sdf_deglitch        = SDF_DEGLITCH
- , sdf_running         = SDF_RUNNING
- , sdf_lsampl          = SDF_LSAMPL
- , sdf_packed          = SDF_PACKED
-}
+
+
+data SubDeviceFlag = SdfBusy | SdfBusyOwner | SdfLocked | SdfLockOwner
+                   | SdfMaxData | SdfFlags | SdfRangeType | SdfCmd
+                   | SdfSoftCalibrated | SdfReadable | SdfWritable
+                   | SdfInternal | SdfGround | SdfCommon | SdfDiff
+                   | SdfOther | SdfDither | SdfDeglitch
+                   | SdfRunning | SdfLSample | SdfPacked
+                   deriving (Eq, Ord, Enum, Show)
+
+subDeviceFlagToC :: SubDeviceFlag -> CInt
+subDeviceFlagToC = highToC subDeviceFlagMap (snd $ head subDeviceFlagMap)
+
+subDeviceFlagsFromC :: CInt -> [SubDeviceFlag]
+subDeviceFlagsFromC flagsInt = filter hasFlagBit [SdfBusy .. SdfPacked]
+  where hasFlagBit hFlag = (subDeviceFlagToC hFlag) .&. flagsInt > 0
+
+subDeviceFlagsToC :: [SubDeviceFlag] -> CInt
+subDeviceFlagsToC hFlags = foldl (.|.) 0 (map subDeviceFlagToC hFlags)
+
+subDeviceFlagMap :: [(SubDeviceFlag,CInt)]
+subDeviceFlagMap = 
+ [(SdfBusy,            #const SDF_BUSY)
+ , (SdfBusyOwner,      #const SDF_BUSY_OWNER)
+ , (SdfLocked,         #const SDF_LOCKED)
+ , (SdfLockOwner,      #const SDF_LOCK_OWNER)
+ , (SdfMaxData,        #const SDF_MAXDATA)
+ , (SdfFlags,          #const SDF_FLAGS)
+ , (SdfRangeType,      #const SDF_RANGETYPE)
+ , (SdfCmd,            #const SDF_CMD)
+ , (SdfSoftCalibrated, #const SDF_SOFT_CALIBRATED)
+ , (SdfReadable,       #const SDF_READABLE)
+ , (SdfWritable,       #const SDF_WRITABLE)
+ , (SdfInternal,       #const SDF_INTERNAL)
+ , (SdfGround,         #const SDF_GROUND)
+ , (SdfCommon,         #const SDF_COMMON)
+ , (SdfDiff,           #const SDF_DIFF)
+ , (SdfOther,          #const SDF_OTHER)
+ , (SdfDither,         #const SDF_DITHER)
+ , (SdfDeglitch,       #const SDF_DEGLITCH)
+ , (SdfRunning,        #const SDF_RUNNING)
+ , (SdfLSample,        #const SDF_LSAMPL)
+ , (SdfPacked,         #const SDF_PACKED)
+ ]
 
 
 -- |Some NI boards support RTSI bus for synchronizing multiple
