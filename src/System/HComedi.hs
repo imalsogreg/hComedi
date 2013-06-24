@@ -32,11 +32,15 @@ module System.HComedi (
   , findRange
   , findSubDeviceByType
     
+    -- * Async IO
+  , readData
+
     -- * Commands
   , timedCommand
   , validateCommand
   , unValidCommand
   , execCommand
+  , mkChanOpt
     
     -- * One-off I/O
   , aReadInteger
@@ -44,6 +48,7 @@ module System.HComedi (
   , aReadIntegerDelayedNS
   , aReadHint
   , aWriteInteger
+  , oneOffReadFromStream
     
     -- * Conversion
   , setGlobalOORBehavior
@@ -51,8 +56,6 @@ module System.HComedi (
   , fromPhysIdeal
   , toPhysIdeal
 
-    -- * Async Commands 
-  , mkChanOpt
     
     -- * Device Administration
   , lock
@@ -79,7 +82,8 @@ import Data.Maybe (fromJust, maybe)
 import System.HComedi.ComediBase (SampleUnit (..), RangeInfo (..))
 import qualified System.HComedi.ComediBase as B
 import qualified Control.Exception as E
-import qualified Control.Monad as M 
+import qualified Control.Monad as M
+import qualified Data.Vector.Unboxed as V
 
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
@@ -128,9 +132,9 @@ getSystemInfo hs = do
 data VersionCode = VersionCode Int32 Int32 Int32 deriving (Eq)
 
 instance Show VersionCode where
-  show (VersionCode maj minr rev) = show maj ++
-                                    "." ++ show minr ++
-                                    "." ++ show rev
+  show (VersionCode maj maj' minr) = show maj ++
+                                     "." ++ show maj' ++
+                                     "." ++ show minr
 
 getDriverVersionCode :: Handle -> IO VersionCode
 getDriverVersionCode (Handle fn p) =
@@ -202,6 +206,18 @@ execCommand (Handle fn p) (ValidCommand cmd) =
     (throwErrnoIf (<0) ("Comedi error executing command")
      (B.c_comedi_command p cmdP))
     return ()
+
+oneOffReadFromStream :: Handle -> Int -> ValidCommand -> IO [Vector Double]
+oneOffReadFromStream (Handle fn p) nSamps cmd = do
+  cFile <- c_comedi_fileno p nSampsp
+  alloca $ \dPtr -> do
+    nRead <- (throwErrornoIf (<0) ("Comedi error reading from stream on " ++ fn)
+              (B.c_read cFile dPtr))
+    datRaw <- peek dPtr
+    
+  
+  
+  
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String

@@ -16,6 +16,7 @@ import Foreign.C.String
 import Data.Bits
 
 #include <comedilib.h>
+#include <stdio.h>
 
 -- Low level type aliases
 -- These only appear in the lib* functions, and aren't exported from the module
@@ -40,6 +41,9 @@ cr_pack_flags :: ChanInd -> Range -> ARef -> CInt -> CInt
 cr_pack_flags c r a flags = (cr_pack c r a) .|. (flags .&. (#const CR_FLAGS_MASK))
 
 -- *Core functions
+
+foreign import ccall safe "stdio.h read"
+  c_read :: CFile -> Ptr CInt -> CInt -> IO CInt
 
 foreign import ccall safe "comedilib.h comedi_open"
   c_comedi_open :: CString -> IO Handle
