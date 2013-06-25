@@ -13,7 +13,7 @@ module System.HComedi (
   , B.ChanOptFlag (..)
   , B.SubDeviceFlag (..)
   , B.TrigSrc (..)
-  , TestResult (..)
+  , CommandTestResult (..)
     
     -- * Intermediate level functions
   , withHandle
@@ -170,12 +170,12 @@ timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
   where nChan = length chanList
         
 
-data TestResult = NoChange | SrcChange | ArgChange | ChanListChange
+data CommandTestResult = NoChange | SrcChange | ArgChange | ChanListChange
                 deriving (Eq, Ord, Show)
         
 newtype ValidCommand = ValidCommand { unValidCommand :: B.Command } deriving (Eq, Show)
                          
-cToResult :: CInt -> TestResult
+cToResult :: CInt -> CommandTestResult
 cToResult n
   | n == 0   = NoChange
   | n == 1   = SrcChange
@@ -185,7 +185,7 @@ cToResult n
   | n == 5   = ChanListChange
 
 
-validateCommand :: Handle -> [TestResult] -> B.Command -> IO ValidCommand
+validateCommand :: Handle -> [CommandTestResult] -> B.Command -> IO ValidCommand
 validateCommand h@(Handle fd p) unacceptableResults cmd =
   alloca $ \cmdP -> do
     poke cmdP cmd
