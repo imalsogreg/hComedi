@@ -73,6 +73,7 @@ module System.HComedi (
   , chanListFromCommand
   , defaultChanlist
   , unChanOpt
+  , B.trigSrcMap
     
   ) where
 
@@ -191,7 +192,8 @@ timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
          (B.c_comedi_get_cmd_generic_timed p s cmdP 
           (fromIntegral nChan) (fromIntegral sPeriodNS)))
         cmd <- peek cmdP
-        return $ cmd {B.cmd_chanlist = chansP
+        return $ cmd {B.cmd_stop_src = B.TrigNone
+                     ,B.cmd_chanlist = chansP
                      ,B.cmd_chanlist_len = fromIntegral nChan
                      ,B.cmd_data = dataP
                      }))
@@ -225,7 +227,8 @@ validateCommand h@(Handle fd p) unacceptableResults cmd =
                     (error $ "Comedi error sending command to " ++ fd ++ 
                      ". validateCommand returned " ++ show (cToResult res))
                   | res == 0     -> return $ ValidCommand cmd
-                  | otherwise    -> putStrLn ("Res: " ++ show res) >> validateCommand h unacceptableResults cmd'
+                  | otherwise    -> putStrLn ("Changed command Res: " ++ show res) >> 
+                                    validateCommand h unacceptableResults cmd'
       
 execCommand :: Handle -> ValidCommand -> IO ()
 execCommand (Handle fn p) (ValidCommand cmd) =
@@ -248,6 +251,8 @@ oneOffReadFromStream h@(Handle fn p) nSampsPerChan cmd = do
     nRead <- (throwErrnoIf (<0) ("Comedi error reading from stream on " ++ fn)
               (B.c_read cFile dPtr (fromIntegral nSamps)))
     putStrLn $ "nRead: " ++ show nRead
+    return [1]
+    {-
     datRaw <- map fromIntegral `M.liftM` peekArray (fromIntegral nRead) dPtr 
     chanList <- cycle `M.liftM` chanListFromCommand cmd'
     rInfo  <- M.sequence $ take nSamps $ 
@@ -255,7 +260,7 @@ oneOffReadFromStream h@(Handle fn p) nSampsPerChan cmd = do
     -- print $ take nSamps chanList
     --print $ L.zipWith3 toPhysIdeal datRaw rInfo (map (getMaxData h subDev . fst') chanList)
     return $ L.zipWith3 toPhysIdeal datRaw rInfo (map (getMaxData h subDev . fst') chanList)
-  
+  -}
 {-  
 toSubLists :: Int -> V.Vector -> [[a]]
 toSubLists n xs = L.unfoldr f xs

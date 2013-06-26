@@ -492,16 +492,16 @@ foreign import ccall safe "comedilib.h comedi_set_other_source"
 {- Imports not written.  Will write if I find out they are important. -}
 
 data Command = Command { cmd_subdev          :: SubDevice
-                       , cmd_flags           :: CInt
-                       , cmd_start_src       :: CInt 
+                       , cmd_flags           :: CInt  -- TODO: higher command flags type
+                       , cmd_start_src       :: TrigSrc 
                        , cmd_start_arg       :: CInt
-                       , cmd_scan_begin_src  :: CInt
+                       , cmd_scan_begin_src  :: TrigSrc
                        , cmd_scan_begin_arg  :: CInt
-                       , cmd_convert_src     :: CInt
+                       , cmd_convert_src     :: TrigSrc
                        , cmd_convert_arg     :: CInt
-                       , cmd_scan_end_src    :: CInt
+                       , cmd_scan_end_src    :: TrigSrc
                        , cmd_scan_end_arg    :: CInt
-                       , cmd_stop_src        :: CInt
+                       , cmd_stop_src        :: TrigSrc
                        , cmd_stop_arg        :: CInt
                        , cmd_chanlist        :: Ptr CInt
                        , cmd_chanlist_len    :: CInt
@@ -530,23 +530,23 @@ instance Storable Command where
     pChanListLen  <- (#peek comedi_cmd, chanlist_len) ptr
     pData         <- (#peek comedi_cmd, data) ptr
     pDataLen      <- (#peek comedi_cmd, data_len) ptr
-    return $ Command pSubDev pFlags pStartSrc pStartArg pScanBeginSrc pScanBeginArg
-      pConvertSrc pConvertArg pScanEndSrc pScanEndArg pStopSrc pStopArg
-      pChanList pChanListLen pData pDataLen
+    return $ Command pSubDev pFlags (trigFromC pStartSrc) pStartArg (trigFromC pScanBeginSrc) 
+      pScanBeginArg (trigFromC pConvertSrc) pConvertArg (trigFromC pScanEndSrc) pScanEndArg 
+      (trigFromC pStopSrc) pStopArg pChanList pChanListLen pData pDataLen
   poke ptr (Command sSubDev sFlags sStartSrc sStartArg sScanBeginSrc sScanBeginArg
             sConvertSrc sConvertArg sScanEndSrc sScanEndArg sStopSrc sStopArg
             sChanList sChanListLen sData sDataLen) = do
     (#poke comedi_cmd, subdev)           ptr sSubDev
     (#poke comedi_cmd, flags)            ptr sFlags
-    (#poke comedi_cmd, start_src)        ptr sStartSrc
+    (#poke comedi_cmd, start_src)        ptr $ trigToC sStartSrc
     (#poke comedi_cmd, start_arg)        ptr sStartArg
-    (#poke comedi_cmd, scan_begin_src)   ptr sScanBeginSrc
+    (#poke comedi_cmd, scan_begin_src)   ptr $ trigToC sScanBeginSrc
     (#poke comedi_cmd, scan_begin_arg)   ptr sScanBeginArg
-    (#poke comedi_cmd, convert_src)      ptr sConvertSrc
+    (#poke comedi_cmd, convert_src)      ptr $ trigToC sConvertSrc
     (#poke comedi_cmd, convert_arg)      ptr sConvertArg
-    (#poke comedi_cmd, scan_end_src)     ptr sScanEndSrc
+    (#poke comedi_cmd, scan_end_src)     ptr $ trigToC sScanEndSrc
     (#poke comedi_cmd, scan_end_arg)     ptr sScanEndArg
-    (#poke comedi_cmd, stop_src)         ptr sStopSrc
+    (#poke comedi_cmd, stop_src)         ptr $ trigToC sStopSrc
     (#poke comedi_cmd, stop_arg)         ptr sStopArg
     (#poke comedi_cmd, chanlist)         ptr sChanList
     (#poke comedi_cmd, chanlist_len)     ptr sChanListLen

@@ -19,7 +19,7 @@ library
   extra-libraries:  comedi
   hs-source-dirs:   src
   other-modules:    System.HComedi.ComediBase
-  ghc-options:      -with-rtsopts, -threaded
+  ghc-options:      -with-rtsopts -threaded -O2
 
 executable tut1
   main-is:          tut1.hs
@@ -40,7 +40,7 @@ executable tut3
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
-  ghc-options:      -threaded
+  ghc-options:      -threaded -O2
 
 executable tmp
   main-is:          tmp.hs
