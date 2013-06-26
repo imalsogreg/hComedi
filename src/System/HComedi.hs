@@ -268,6 +268,8 @@ toSubLists n xs = L.unfoldr f xs
         f es = Just (take n es, drop n es)
 -}
 
+withStreamData :: Handle -> ValidCommand -> ([V.Vector Double] -> IO a) -> IO a
+
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
                      , cHandle :: B.Handle }
