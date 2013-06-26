@@ -15,30 +15,36 @@ library
   exposed-modules:  System.HComedi
   build-depends:    base >= 4.3 && <= 4.7
                    ,containers
+                   ,vector
   extra-libraries:  comedi
   hs-source-dirs:   src
   other-modules:    System.HComedi.ComediBase
+  ghc-options:      -with-rtsopts, -threaded
 
 executable tut1
   main-is:          tut1.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5 
                     , hcomedi
+  ghc-options:      -with-rtsopts
 
 executable tut2
   main-is:          tut2.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
+  ghc-options:      -with-rtsopts
 
 executable tut3
   main-is:          tut3.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
+  ghc-options:      -threaded
 
 executable tmp
   main-is:          tmp.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
+  ghc-options:      -with-rtsopts

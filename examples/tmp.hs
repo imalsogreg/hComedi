@@ -10,7 +10,7 @@ main = do
 work :: Handle -> Int32 -> IO ()
 work p a = do
   setGlobalOORBehavior OOR_Number
-  m <- getMaxData p (SubDevice 0) (Channel 0)
+  let m = getMaxData p (SubDevice 0) (Channel 0)
   r <- getRangeInfo p (SubDevice 0) (Channel 0) (Range 3)
-  p <- toPhysIdeal a r m
+  let p = toPhysIdeal a r m
   putStrLn $ show p

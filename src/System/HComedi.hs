@@ -33,7 +33,7 @@ module System.HComedi (
   , findSubDeviceByType
     
     -- * Async IO
-  , readData
+
 
     -- * Commands
   , timedCommand
@@ -68,12 +68,18 @@ module System.HComedi (
     -- * Utility / Debug
   , B.cr_pack
   , B.cr_pack_flags
-
+  , B.cr_unpack
+  , B.cr_unpack_flags
+  , chanListFromCommand
+  , defaultChanlist
+  , unChanOpt
     
   ) where
 
+import Prelude hiding (unsafePerformIO)
+import System.IO.Unsafe (unsafePerformIO)
 import qualified GHC.Int as I
-import Foreign
+import Foreign hiding (unsafePerformIO)
 import Foreign.C
 import Foreign.C.Error
 import Foreign.Ptr
@@ -84,6 +90,8 @@ import qualified System.HComedi.ComediBase as B
 import qualified Control.Exception as E
 import qualified Control.Monad as M
 import qualified Data.Vector.Unboxed as V
+import qualified Data.List as L
+import qualified Control.Concurrent as CC
 
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
@@ -103,6 +111,8 @@ data SystemInfo = SystemInfo { siDriverName  :: String
                              , siVersionCode :: VersionCode
                              , siBoards      :: [BoardInfo]
                              }  deriving (Eq, Show)
+
+defaultChanlist = [(Channel 0, Range 1, B.GroundRef, []),(Channel 1, Range 1, B.GroundRef, [])]
 
 getSystemInfo :: [Handle] -> IO SystemInfo
 getSystemInfo hs = do
@@ -150,6 +160,24 @@ mkChanOpt :: (Channel, Range, B.Ref, [B.ChanOptFlag]) -> CInt
 mkChanOpt ((Channel c), (Range r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
   where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
   
+unChanOpt :: CInt -> (Channel, Range, B.Ref, [B.ChanOptFlag])
+unChanOpt cChanOpt = case B.cr_unpack_flags cChanOpt of
+  (ch,rng,ref,fs) ->
+    (Channel $ fromIntegral ch, Range $ fromIntegral rng, B.refFromC ref, fs)
+        
+chanListFromCommand :: B.Command -> IO [(Channel,Range,B.Ref,[B.ChanOptFlag])]
+chanListFromCommand cmd = do
+  cChansOpts <- peekArray nChans (B.cmd_chanlist cmd)
+  return $ map unChanOpt cChansOpts
+  where nChans = fromIntegral $ B.cmd_chanlist_len cmd
+{-  
+  where
+    nChans       = fromIntegral $ B.cmd_chanlist_len cmd
+    unConv cChan = case B.cr_unpack_flags cChan of
+      (ch, rng, ref, fs)  -> 
+        (Channel $ fromIntegral ch, Range $ fromIntegral rng, B.refFromC ref, fs)
+-}    
+
 timedCommand :: Handle -> SubDevice -> Int -> Int -> [(Channel,Range,B.Ref,[B.ChanOptFlag])] ->
                 IO B.Command
 timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
@@ -207,17 +235,33 @@ execCommand (Handle fn p) (ValidCommand cmd) =
      (B.c_comedi_command p cmdP))
     return ()
 
-oneOffReadFromStream :: Handle -> Int -> ValidCommand -> IO [Vector Double]
-oneOffReadFromStream (Handle fn p) nSamps cmd = do
-  cFile <- c_comedi_fileno p nSampsp
-  alloca $ \dPtr -> do
-    nRead <- (throwErrornoIf (<0) ("Comedi error reading from stream on " ++ fn)
-              (B.c_read cFile dPtr))
-    datRaw <- peek dPtr
-    
+oneOffReadFromStream :: Handle -> Int -> ValidCommand -> IO [Double]
+oneOffReadFromStream h@(Handle fn p) nSampsPerChan cmd = do
+  cFile <- B.c_comedi_fileno p
+  let cmd' = unValidCommand cmd
+      nChan  = fromIntegral $ B.cmd_chanlist_len cmd'
+      nSamps = nSampsPerChan * nChan
+      subDev = SubDevice $ B.cmd_subdev cmd'
+      fst' (a,_,_,_) = a
+      snd' (_,b,_,_) = b
+  allocaArray nSamps $ \dPtr ->   do
+    nRead <- (throwErrnoIf (<0) ("Comedi error reading from stream on " ++ fn)
+              (B.c_read cFile dPtr (fromIntegral nSamps)))
+    putStrLn $ "nRead: " ++ show nRead
+    datRaw <- map fromIntegral `M.liftM` peekArray (fromIntegral nRead) dPtr 
+    chanList <- cycle `M.liftM` chanListFromCommand cmd'
+    rInfo  <- M.sequence $ take nSamps $ 
+              L.zipWith (getRangeInfo h subDev) (map fst' chanList) (map snd' chanList)
+    -- print $ take nSamps chanList
+    --print $ L.zipWith3 toPhysIdeal datRaw rInfo (map (getMaxData h subDev . fst') chanList)
+    return $ L.zipWith3 toPhysIdeal datRaw rInfo (map (getMaxData h subDev . fst') chanList)
   
-  
-  
+{-  
+toSubLists :: Int -> V.Vector -> [[a]]
+toSubLists n xs = L.unfoldr f xs
+  where f [] = Nothing
+        f es = Just (take n es, drop n es)
+-}
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
@@ -294,8 +338,8 @@ getSubDeviceFlags (Handle fn p) (SubDevice s) =
   (throwErrnoIf (==(-1)) ("Comedi couldn't get subdevice flags for " ++ fn)
    (B.c_comedi_get_subdevice_flags p s)) >>= return . B.subDeviceFlagsFromC
    
-getMaxData :: Handle -> SubDevice -> Channel -> IO B.LSample
-getMaxData (Handle fn p) (SubDevice s) (Channel c) =
+getMaxData :: Handle -> SubDevice -> Channel -> B.LSample
+getMaxData (Handle fn p) (SubDevice s) (Channel c) = unsafePerformIO $ 
   throwErrnoIf (<= 0)
   ("Comedi error getting max data for " ++ fn ++ " subdevice " ++ show s)
   (B.c_comedi_get_maxdata p s c)
@@ -349,8 +393,8 @@ fromPhysIdeal dataVal r maxData =
                     (B.c_comedi_from_phys (CDouble dataVal) ptr maxData) >>=
                     return . fromIntegral)
   
-toPhysIdeal :: B.LSample -> RangeInfo -> B.LSample -> IO Double
-toPhysIdeal rawVal r maxData =
+toPhysIdeal :: B.LSample -> RangeInfo -> B.LSample -> Double
+toPhysIdeal rawVal r maxData = unsafePerformIO $ 
   alloca $ (\ptr -> poke ptr r >>
                     (B.c_comedi_to_phys rawVal ptr maxData) >>=
                     return . realToFrac)

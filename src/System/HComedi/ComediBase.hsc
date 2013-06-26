@@ -9,6 +9,7 @@ translations of enums, Storable instances
 
 import Foreign
 import Foreign.C
+import Foreign.C.Types
 import Foreign.Ptr
 import Foreign.Marshal.Array
 import Foreign.C.String
@@ -37,13 +38,28 @@ type Sample  = Int16
 cr_pack :: ChanInd -> Range -> ARef -> CInt
 cr_pack c r a =    ((a .&. 0x3) `shift` 24) .|. ((r .&. 0xff) `shift` 16) .|. c
 
+cr_unpack :: CInt -> (ChanInd, Range, ARef)
+cr_unpack cChan = ( (cChan `shiftR` 0)  .&. 0xffff,
+                    (cChan `shiftR` 16) .&. 0xff,
+                    (cChan `shiftR` 24) .&. 0x3 
+                  )
+
 cr_pack_flags :: ChanInd -> Range -> ARef -> CInt -> CInt
 cr_pack_flags c r a flags = (cr_pack c r a) .|. (flags .&. (#const CR_FLAGS_MASK))
+
+cr_unpack_flags :: CInt -> (ChanInd, Range, ARef, [ChanOptFlag])
+cr_unpack_flags cChan = (c,r,a,fs)
+  where (c,r,a)            = cr_unpack cChan 
+        fs                 = filter hasFlagBit [ChanDither .. ChanGateInvert ]
+        hasFlagBit chanOpt = (chanOptToC chanOpt) .&. cChan > 0
+
+
+
 
 -- *Core functions
 
 foreign import ccall safe "stdio.h read"
-  c_read :: CFile -> Ptr CInt -> CInt -> IO CInt
+  c_read :: Ptr CFile -> Ptr CInt -> CInt -> IO CInt
 
 foreign import ccall safe "comedilib.h comedi_open"
   c_comedi_open :: CString -> IO Handle
@@ -99,7 +115,7 @@ foreign import ccall safe "comedilib.h comedi_do_insnlist"
   c_comedi_do_insnlist :: Handle -> Ptr InsnList -> IO CInt
                           
 foreign import ccall safe "comedilib.h comedi_fileno"
-  c_comedi_fileno :: Handle -> IO CInt
+  c_comedi_fileno :: Handle -> IO (Ptr CFile)
                      
 foreign import ccall safe "comedilib.h comedi_find_range"
   c_comedi_find_range :: Handle -> SubDevice -> ChanInd -> Unit -> 
@@ -720,7 +736,7 @@ refFromC = cToHigh refMap GroundRef
 newtype CrFlag = CrFlag { flagVal :: CInt } deriving (Eq, Show)
 
 data ChanOptFlag = ChanDither | ChanAltSrc | ChanEdge | ChanGateInvert
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Enum, Show)
 
 chanOptMap :: [(ChanOptFlag, CInt)]
 chanOptMap = [(ChanDither, #const CR_DITHER)
