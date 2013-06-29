@@ -74,6 +74,7 @@ module System.HComedi (
   , defaultChanlist
   , unChanOpt
   , B.trigSrcMap
+  , unflattenData
     
   ) where
 
@@ -268,7 +269,17 @@ toSubLists n xs = L.unfoldr f xs
         f es = Just (take n es, drop n es)
 -}
 
+
+unflattenData :: V.Unbox a => V.Vector a -> Int -> [V.Vector a]
+unflattenData vec nChan =
+  L.map (\c -> V.map (\i -> (V.!) vec (i+c)) chanIndices) [0 .. nChan - 1]
+  where
+    nSampPerChan = V.length vec `div` nChan
+    chanIndices = V.generate nSampPerChan (\i -> i*nChan)
+
+
 withStreamData :: Handle -> ValidCommand -> ([V.Vector Double] -> IO a) -> IO a
+withStreamData = undefined
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String

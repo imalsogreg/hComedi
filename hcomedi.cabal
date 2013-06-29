@@ -19,21 +19,19 @@ library
   extra-libraries:  comedi
   hs-source-dirs:   src
   other-modules:    System.HComedi.ComediBase
-  ghc-options:      -with-rtsopts -threaded -O2
+  ghc-options:      -threaded -O2
 
 executable tut1
   main-is:          tut1.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5 
                     , hcomedi
-  ghc-options:      -with-rtsopts
 
 executable tut2
   main-is:          tut2.hs
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
-  ghc-options:      -with-rtsopts
 
 executable tut3
   main-is:          tut3.hs
@@ -47,4 +45,3 @@ executable tmp
   hs-source-dirs:   examples, src/System
   build-depends:    base >= 4 && <= 5
                     , hcomedi
-  ghc-options:      -with-rtsopts
