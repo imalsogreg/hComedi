@@ -278,8 +278,18 @@ unflattenData vec nChan =
     chanIndices = V.generate nSampPerChan (\i -> i*nChan)
 
 
-withStreamData :: Handle -> ValidCommand -> ([V.Vector Double] -> IO a) -> IO a
-withStreamData = undefined
+withStreamData :: Handle ->                                -- Device handle
+                  ValidCommand ->                          -- Acq command
+                  Int ->                                   -- Poll Freqency
+                  ([V.Vector Double] -> IO a) ->           -- Handler function
+                  IO a                                     
+withStreamData h@(Handle fn p) (ValidCommand cmd) pollFreq f = do
+  cFile <- B.c_comedi_fileno p
+  let nChan         = B.cmd_chanlist_len cmd
+      scanFreq      = 1000000000 `div` cmd_scan_begin_arg cmd
+      nSampsPerChan = scanFreq `div` pollFreq
+      nSamps        = nSampsPerChan * nChan
+      
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
