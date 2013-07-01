@@ -289,7 +289,9 @@ withStreamData h@(Handle fn p) (ValidCommand cmd) pollFreq f = do
       scanFreq      = 1000000000 `div` cmd_scan_begin_arg cmd
       nSampsPerChan = scanFreq `div` pollFreq
       nSamps        = nSampsPerChan * nChan
-      
+      safetyFactor  = 2
+  allocArray (nSamps * safetyFactor) $ \dataPtr -> do
+    
 
 -- |ComediHandle handle for comedi device
 data Handle = Handle { devName :: String
