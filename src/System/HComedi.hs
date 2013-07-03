@@ -33,7 +33,7 @@ module System.HComedi (
   , findSubDeviceByType
     
     -- * Async IO
-
+  , withFaucetData
 
     -- * Commands
   , timedCommand
@@ -94,6 +94,7 @@ import qualified Control.Monad as M
 import qualified Data.Vector.Unboxed as V
 import qualified Data.List as L
 import qualified Control.Concurrent as CC
+import qualified Data.Time as T
 
 data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
 data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
@@ -277,13 +278,38 @@ unflattenData vec nChan =
     nSampPerChan = V.length vec `div` nChan
     chanIndices = V.generate nSampPerChan (\i -> i*nChan)
 
+data DataFaucetState = DataFaucetState { faucetRunning      :: Bool
+                                       , faucetFun          :: [V.Vector Double] -> IO b
+                                       , faucetCreationTime :: T.UTCTime
+                                       , faucetLastStart    :: Maybe T.UTCTime
+                                       , faucetLastFinish   :: Maybe T.UTCTime
+                                       , faucetCycleCount   :: Integer
+                                       } deriving (Eq, Show)
 
-withStreamData :: Handle ->                                -- Device handle
+data DataFaucetCommand = DFStart | DFStop | DFDestroy (MVar ())
+data DataFaucet = DataFaucet (MVar FaucetCommand) (MVar FaucetState)
+
+initDataFaucet :: ([V.Vector Double] -> IO a) -> IO DataFaucet
+initDataFaucet f = do
+  startT <- T.getCurrentTime
+  fState <- newMVar $ DataFaucetState False f startT Nothing Nothing 0
+  fCmd  <- newEmptyMVar 
+  let f = DataFaucet fCmd fState
+  forkIO (runFaucet f)
+  return f
+
+
+
+runFaucet :: DataFaucet -> IO ()
+runFaucet f = do
+  
+
+withDataFaucet :: Handle ->                                -- Device handle
                   ValidCommand ->                          -- Acq command
                   Int ->                                   -- Poll Freqency
                   ([V.Vector Double] -> IO a) ->           -- Handler function
-                  IO a                                     
-withStreamData h@(Handle fn p) (ValidCommand cmd) pollFreq f = do
+                  IO DataFaucet                            -- Faucet Handle
+withDataFaucet h@(Handle fn p) (ValidCommand cmd) pollFreq f = do
   cFile <- B.c_comedi_fileno p
   let nChan         = B.cmd_chanlist_len cmd
       scanFreq      = 1000000000 `div` cmd_scan_begin_arg cmd
