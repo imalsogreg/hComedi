@@ -16,6 +16,7 @@ library
   build-depends:    base >= 4.3 && <= 4.7
                    ,containers
                    ,vector
+                   ,time
   extra-libraries:  comedi
   hs-source-dirs:   src
   other-modules:    System.HComedi.ComediBase

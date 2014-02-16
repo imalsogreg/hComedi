@@ -5,10 +5,7 @@ module System.HComedi (
   , SubDevice (..)
   , Channel (..)
   , B.SubDeviceType (..)
-  , Range (..)
-  , RangeInfo (..)
   , B.Ref (..)
-  , SampleUnit (..)
   , B.OutOfRangeBehavior (..)
   , B.ChanOptFlag (..)
   , B.SubDeviceFlag (..)
@@ -22,18 +19,15 @@ module System.HComedi (
     -- * Descriptive functions
   , getSystemInfo
   , getNSubDevices
-  , getNRanges
   , getNChannels
   , getSubDeviceType
   , getSubDeviceFlags
-  , getMaxData
   , boardName
   , driverName    
-  , findRange
   , findSubDeviceByType
     
-    -- * Async IO
-  , withFaucetData
+--    -- * Async IO
+--  , withFaucetData
 
     -- * Commands
   , timedCommand
@@ -52,9 +46,7 @@ module System.HComedi (
     
     -- * Conversion
   , setGlobalOORBehavior
-  , getRangeInfo
-  , fromPhysIdeal
-  , toPhysIdeal
+
 
     
     -- * Device Administration
@@ -87,18 +79,19 @@ import Foreign.C.Error
 import Foreign.Ptr
 import Foreign.ForeignPtr.Safe
 import Data.Maybe (fromJust, maybe)
-import System.HComedi.ComediBase (SampleUnit (..), RangeInfo (..))
+
 import qualified System.HComedi.ComediBase as B
+import System.HComedi.Units
+
 import qualified Control.Exception as E
 import qualified Control.Monad as M
 import qualified Data.Vector.Unboxed as V
 import qualified Data.List as L
+import Control.Concurrent
 import qualified Control.Concurrent as CC
 import qualified Data.Time as T
 
-data SubDevice = SubDevice { cSubDevice :: B.SubDevice } deriving (Eq, Show)
-data Channel   = Channel   { cChanInd   :: B.ChanInd   } deriving (Eq, Show)
-data Range     = Range     { cRange     :: B.Range     } deriving (Eq, Show)  
+
 
 data BoardInfo =  BoardInfo { biName  :: String
                             , biSubDevices :: [SubDeviceInfo]}
@@ -168,77 +161,6 @@ unChanOpt cChanOpt = case B.cr_unpack_flags cChanOpt of
   (ch,rng,ref,fs) ->
     (Channel $ fromIntegral ch, Range $ fromIntegral rng, B.refFromC ref, fs)
         
-chanListFromCommand :: B.Command -> IO [(Channel,Range,B.Ref,[B.ChanOptFlag])]
-chanListFromCommand cmd = do
-  cChansOpts <- peekArray nChans (B.cmd_chanlist cmd)
-  return $ map unChanOpt cChansOpts
-  where nChans = fromIntegral $ B.cmd_chanlist_len cmd
-{-  
-  where
-    nChans       = fromIntegral $ B.cmd_chanlist_len cmd
-    unConv cChan = case B.cr_unpack_flags cChan of
-      (ch, rng, ref, fs)  -> 
-        (Channel $ fromIntegral ch, Range $ fromIntegral rng, B.refFromC ref, fs)
--}    
-
-timedCommand :: Handle -> SubDevice -> Int -> Int -> [(Channel,Range,B.Ref,[B.ChanOptFlag])] ->
-                IO B.Command
-timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
-  alloca $ \cmdP ->
-  mallocForeignPtr >>= (flip withForeignPtr) 
-  (\dataP ->
-    mallocForeignPtrArray nChan >>= (flip withForeignPtr)
-    (\chansP -> do 
-        pokeArray chansP  $ map mkChanOpt chanList
-        (throwErrnoIf (< 0) ("Comedi error making command") 
-         (B.c_comedi_get_cmd_generic_timed p s cmdP 
-          (fromIntegral nChan) (fromIntegral sPeriodNS)))
-        cmd <- peek cmdP
-        return $ cmd {B.cmd_stop_src = B.TrigNone
-                     ,B.cmd_chanlist = chansP
-                     ,B.cmd_chanlist_len = fromIntegral nChan
-                     ,B.cmd_data = dataP
-                     }))
-  where nChan = length chanList
-        
-
-data CommandTestResult = NoChange | SrcChange | ArgChange | ChanListChange
-                deriving (Eq, Ord, Show)
-        
-newtype ValidCommand = ValidCommand { unValidCommand :: B.Command } deriving (Eq, Show)
-                         
-cToResult :: CInt -> CommandTestResult
-cToResult n
-  | n == 0   = NoChange
-  | n == 1   = SrcChange
-  | n == 2   = SrcChange
-  | n == 3   = ArgChange
-  | n == 4   = ArgChange
-  | n == 5   = ChanListChange
-
-
-validateCommand :: Handle -> [CommandTestResult] -> B.Command -> IO ValidCommand
-validateCommand h@(Handle fd p) unacceptableResults cmd =
-  alloca $ \cmdP -> do
-    poke cmdP cmd
-    res <- B.c_comedi_command_test p cmdP
-    cmd' <- peek cmdP
-    case res of _
-                  | res < 0       -> error ("Comedi validate command return code: " ++ show res)
-                  | cToResult res `elem` unacceptableResults  -> 
-                    (error $ "Comedi error sending command to " ++ fd ++ 
-                     ". validateCommand returned " ++ show (cToResult res))
-                  | res == 0     -> return $ ValidCommand cmd
-                  | otherwise    -> putStrLn ("Changed command Res: " ++ show res) >> 
-                                    validateCommand h unacceptableResults cmd'
-      
-execCommand :: Handle -> ValidCommand -> IO ()
-execCommand (Handle fn p) (ValidCommand cmd) =
-  alloca $ \cmdP -> do
-    poke cmdP cmd
-    (throwErrnoIf (<0) ("Comedi error executing command")
-     (B.c_comedi_command p cmdP))
-    return ()
 
 oneOffReadFromStream :: Handle -> Int -> ValidCommand -> IO [Double]
 oneOffReadFromStream h@(Handle fn p) nSampsPerChan cmd = do
@@ -278,71 +200,6 @@ unflattenData vec nChan =
     nSampPerChan = V.length vec `div` nChan
     chanIndices = V.generate nSampPerChan (\i -> i*nChan)
 
-data DataFaucetState = DataFaucetState { faucetRunning      :: Bool
-                                       , faucetFun          :: [V.Vector Double] -> IO b
-                                       , faucetCreationTime :: T.UTCTime
-                                       , faucetLastStart    :: Maybe T.UTCTime
-                                       , faucetLastFinish   :: Maybe T.UTCTime
-                                       , faucetCycleCount   :: Integer
-                                       } deriving (Eq, Show)
-
-data DataFaucetCommand = DFStart | DFStop | DFDestroy (MVar ())
-data DataFaucet = DataFaucet (MVar FaucetCommand) (MVar FaucetState)
-
-initDataFaucet :: ([V.Vector Double] -> IO a) -> IO DataFaucet
-initDataFaucet f = do
-  startT <- T.getCurrentTime
-  fState <- newMVar $ DataFaucetState False f startT Nothing Nothing 0
-  fCmd  <- newEmptyMVar 
-  let f = DataFaucet fCmd fState
-  forkIO (runFaucet f)
-  return f
-
-
-
-runFaucet :: DataFaucet -> IO ()
-runFaucet f = do
-  
-
-withDataFaucet :: Handle ->                                -- Device handle
-                  ValidCommand ->                          -- Acq command
-                  Int ->                                   -- Poll Freqency
-                  ([V.Vector Double] -> IO a) ->           -- Handler function
-                  IO DataFaucet                            -- Faucet Handle
-withDataFaucet h@(Handle fn p) (ValidCommand cmd) pollFreq f = do
-  cFile <- B.c_comedi_fileno p
-  let nChan         = B.cmd_chanlist_len cmd
-      scanFreq      = 1000000000 `div` cmd_scan_begin_arg cmd
-      nSampsPerChan = scanFreq `div` pollFreq
-      nSamps        = nSampsPerChan * nChan
-      safetyFactor  = 2
-  allocArray (nSamps * safetyFactor) $ \dataPtr -> do
-    
-
--- |ComediHandle handle for comedi device
-data Handle = Handle { devName :: String
-                     , cHandle :: B.Handle }
-            deriving (Eq, Show)
-
-withHandle :: FilePath -> (Handle -> IO a) -> IO a
-withHandle df act = E.bracket (open df) (close) act
-
-withHandles :: [FilePath] -> ([Handle] -> IO a) -> IO a
-withHandles dfs act = E.bracket 
-                      (M.mapM open dfs)
-                      (M.mapM_ close)
-                      act
-                      
-open :: FilePath -> IO Handle
-open df = throwErrnoIfNull ("Comedi open error for " ++ df) 
-          (withCString df B.c_comedi_open ) >>= 
-          \p -> return $ Handle df p
-
-close :: Handle -> IO ()
-close (Handle df p) = throwErrnoIf_ ( < 0 ) 
-                      ("Comedi close error on handle for " ++ df)
-                      (B.c_comedi_close p)
-
 boardName :: Handle -> IO String
 boardName (Handle df p) = throwErrnoIfNull ("Comedi board name error for " ++ df)
                           (B.c_comedi_get_board_name p) >>= peekCString
@@ -359,18 +216,6 @@ getNSubDevices (Handle df p) =
   ("Comedi error getting n subdevices for " ++ df)
   (B.c_comedi_get_n_subdevices p) >>= return . fromIntegral
                                
-getNRanges :: Handle -> SubDevice -> Channel -> IO Int
-getNRanges (Handle df p) (SubDevice s) (Channel c) = 
-  throwErrnoIf ( < 0 )
-  ("Comedi error getting n ranges for " ++ df)
-  (B.c_comedi_get_n_ranges p s c) >>= return . fromIntegral
-
-getRangeInfo :: Handle -> SubDevice -> Channel -> Range -> IO RangeInfo
-getRangeInfo (Handle fn p) (SubDevice s) (Channel c) (Range r) =
-  do
-    ptr <- (B.c_comedi_get_range p s c r)
-    ri <- peek ptr
-    return ri
 
 --data OutOfRangeBehavior = OOR_NaN | OOR_Number
 
@@ -394,11 +239,6 @@ getSubDeviceFlags (Handle fn p) (SubDevice s) =
   (throwErrnoIf (==(-1)) ("Comedi couldn't get subdevice flags for " ++ fn)
    (B.c_comedi_get_subdevice_flags p s)) >>= return . B.subDeviceFlagsFromC
    
-getMaxData :: Handle -> SubDevice -> Channel -> B.LSample
-getMaxData (Handle fn p) (SubDevice s) (Channel c) = unsafePerformIO $ 
-  throwErrnoIf (<= 0)
-  ("Comedi error getting max data for " ++ fn ++ " subdevice " ++ show s)
-  (B.c_comedi_get_maxdata p s c)
 
 -- Seems to return -1 always.  My bug?
 findSubDeviceByType :: Handle -> B.SubDeviceType -> IO SubDevice
@@ -443,18 +283,6 @@ aWriteInteger (Handle fn p) (SubDevice s) (Channel c) (Range r) a vInt =
   ("Comedi write error for " ++ fn ++ "  channel " ++ show s ++ " := " ++ show vInt)
   (B.c_comedi_data_write p s c r (B.refToC a) (fromIntegral vInt)) >> return ()
 
-fromPhysIdeal :: Double -> RangeInfo -> B.LSample -> IO B.LSample
-fromPhysIdeal dataVal r maxData =
-  alloca $ (\ptr -> poke ptr r >> 
-                    (B.c_comedi_from_phys (CDouble dataVal) ptr maxData) >>=
-                    return . fromIntegral)
-  
-toPhysIdeal :: B.LSample -> RangeInfo -> B.LSample -> Double
-toPhysIdeal rawVal r maxData = unsafePerformIO $ 
-  alloca $ (\ptr -> poke ptr r >>
-                    (B.c_comedi_to_phys rawVal ptr maxData) >>=
-                    return . realToFrac)
-
 lock :: Handle -> SubDevice -> IO ()
 lock (Handle fn p) (SubDevice s) = 
   throwErrnoIf ( < 0 )
@@ -466,13 +294,4 @@ unlock (Handle fn p) (SubDevice s) =
   throwErrnoIf ( < 0 )
   ("Comedi error locking device " ++ fn ++ " subdevice " ++ show s)
   (B.c_comedi_unlock p s) >> return ()
-
-findRange :: Handle -> SubDevice -> Channel -> SampleUnit -> Double -> Double -> IO Int
-findRange (Handle fn p) (SubDevice s) (Channel c) unit sMin sMax =
-  throwErrnoIf ( < 0 )
-  ("Comedi error finding range for " ++ fn ++ " channel " ++ show c ++ 
-   " containing " ++ show sMin ++ " and " ++ show sMax)
-  (B.c_comedi_find_range p s c (B.sampleUnitToC unit)
-   (CDouble sMin) (CDouble sMax)) >>= 
-  return . fromIntegral
 

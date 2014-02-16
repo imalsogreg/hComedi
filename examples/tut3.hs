@@ -1,5 +1,5 @@
 import Control.Concurrent (threadDelay)
-import Control.Monad (forM_, forever)
+import Control.Monad 
 import System.HComedi
 
 main :: IO ()
