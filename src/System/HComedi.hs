@@ -152,15 +152,6 @@ getDriverVersionCode (Handle fn p) =
           c2 i =  i              .&. 0xff
 
 
-mkChanOpt :: (Channel, Range, B.Ref, [B.ChanOptFlag]) -> CInt
-mkChanOpt ((Channel c), (Range r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
-  where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
-  
-unChanOpt :: CInt -> (Channel, Range, B.Ref, [B.ChanOptFlag])
-unChanOpt cChanOpt = case B.cr_unpack_flags cChanOpt of
-  (ch,rng,ref,fs) ->
-    (Channel $ fromIntegral ch, Range $ fromIntegral rng, B.refFromC ref, fs)
-        
 
 oneOffReadFromStream :: Handle -> Int -> ValidCommand -> IO [Double]
 oneOffReadFromStream h@(Handle fn p) nSampsPerChan cmd = do

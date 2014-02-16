@@ -5,14 +5,26 @@ import System.HComedi.Handle
 import System.HComedi.Units
 import qualified System.HComedi.ComediBase as B
 
-chanListFromCommand :: B.Command -> IO [(Channel,Range,B.Ref,[B.ChanOptFlag])]
+import Foreign.C.Error
+import Foreign.C.Types
+import Foreign.Ptr
+import Foreign.ForeignPtr
+import Foreign.Marshal
+import Foreign.Marshal.Array
+import Foreign.Storable
+import Control.Monad
+import Data.Bits
+
+chanListFromCommand :: B.Command
+                    -> IO [(Channel,RangeInd,B.Ref,[B.ChanOptFlag])]
 chanListFromCommand cmd = do
   cChansOpts <- peekArray nChans (B.cmd_chanlist cmd)
   return $ map unChanOpt cChansOpts
   where nChans = fromIntegral $ B.cmd_chanlist_len cmd
 
-timedCommand :: Handle -> SubDevice -> Int -> Int -> [(Channel,Range,B.Ref,[B.ChanOptFlag])] ->
-                IO B.Command
+timedCommand :: Handle -> SubDevice -> Int -> Int
+             -> [(Channel,RangeInd,B.Ref,[B.ChanOptFlag])]
+             -> IO B.Command
 timedCommand (Handle fn p) (SubDevice s) nScan sPeriodNS chanList =
   alloca $ \cmdP ->
   mallocForeignPtr >>= (flip withForeignPtr) 
@@ -53,16 +65,19 @@ validateCommand h@(Handle fd p) unacceptableResults cmd =
     poke cmdP cmd
     res <- B.c_comedi_command_test p cmdP
     cmd' <- peek cmdP
-    when (res < 0) $ error ("Comedi command error", ++ res)
-    when (cToResult res `elem` unacceptableResults) $
-      (error $ unwords ["Comedi error sending command to"
+    aux res cmd'
+      where aux res cmd'
+              | (res < 0) = error ("Comedi command error" ++ show res)
+              | (cToResult res `elem` unacceptableResults) =
+                (error $ unwords ["Comedi error sending command to"
                         ,fd,". validateCommand returned "
                         ,show (cToResult res)])
-    when (res > 0 && cToResult res `notElem` unacceptableResults) $
-      do
-        putStrLn ("Changed command Res: " ++ show res) 
-        validateCommand h unacceptableResults cmd'
-    when (res == 0) . return . ValidCommand $ cmd
+              | (res > 0 && cToResult res `notElem` unacceptableResults) =
+                  do
+                    putStrLn ("Changed command Res: " ++ show res) 
+                    validateCommand h unacceptableResults cmd'
+              | (res == 0) = return . ValidCommand $ cmd
+              | otherwise = error "Impossible case"
       
 execCommand :: Handle -> ValidCommand -> IO ()
 execCommand (Handle fn p) (ValidCommand cmd) =
@@ -72,3 +87,12 @@ execCommand (Handle fn p) (ValidCommand cmd) =
      (B.c_comedi_command p cmdP))
     return ()
 
+mkChanOpt :: (Channel, RangeInd, B.Ref, [B.ChanOptFlag]) -> CInt
+mkChanOpt ((Channel c), (RangeInd r), aRef, flags) = B.cr_pack_flags c r (B.refToC aRef) cFlags
+  where cFlags = foldl (.|.) 0 $ map B.chanOptToC flags
+  
+unChanOpt :: CInt -> (Channel, RangeInd, B.Ref, [B.ChanOptFlag])
+unChanOpt cChanOpt = case B.cr_unpack_flags cChanOpt of
+  (ch,rng,ref,fs) ->
+    (Channel $ fromIntegral ch, RangeInd $ fromIntegral rng, B.refFromC ref, fs)
+        

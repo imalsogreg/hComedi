@@ -1,8 +1,6 @@
 module System.HComedi.Handle ( 
 
-    Handle
-  , devName -- need to export these?
-  , cHandle
+    Handle (..)
 
   -- * Using device handles
   , withHandle

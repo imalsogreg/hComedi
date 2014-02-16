@@ -25,7 +25,7 @@ unSputter nTarget = aux $ fromList []
 toChannels :: Monad m => Int -> Int ->
               Pipe  (U.Vector LSample) (V.Vector (U.Vector LSample)) m r
 toChannels nChans nSampsPerChan =
-  
+
 
 produceAsChannel :: Handle -> ValidCommand -> Producer (U.Vector LSample)
 produceAsChannel handle cmd = do
