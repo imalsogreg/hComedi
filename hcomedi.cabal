@@ -13,9 +13,16 @@ build-type:    Simple
 
 library
   exposed-modules:  System.HComedi
+                   ,System.HComedi.Types
+                   ,System.HComedi.Handle
+                   ,System.HComedi.Units
+                   ,System.HComedi.Command
+                   ,System.HComedi.Produce
   build-depends:    base >= 4.3 && <= 4.7
-                   ,containers
-                   ,vector
+                   ,containers >= 0.5.4 && < 0.5.5
+                   ,vector >= 0.10.9 && < 0.10.10
+                   ,time >= 1.4.1 && < 1.4.2
+                   ,pipes >= 4.0 && < 4.2
   extra-libraries:  comedi
   hs-source-dirs:   src
   other-modules:    System.HComedi.ComediBase
